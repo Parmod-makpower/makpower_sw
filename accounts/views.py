@@ -162,23 +162,37 @@ class UserHierarchyView(APIView):
             return Response({'detail': 'Unauthorized'}, status=403)
 
 
-from django.contrib.auth import get_user_model
+
+# views.py
 from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth import get_user_model
+from django.views.decorators.http import require_GET
 
-def create_superuser(request):
-    User = get_user_model()
+User = get_user_model()
 
-    if User.objects.filter(is_superuser=True).exists():
-        return JsonResponse({"message": "Superuser already exists."})
-
+@csrf_exempt
+@require_GET
+def create_superuser_view(request):
     try:
+        # Check if a superuser already exists
+        if User.objects.filter(is_superuser=True).exists():
+            return JsonResponse({"error": "Superuser already exists."}, status=400)
+
+        # Create new superuser
         user = User.objects.create_superuser(
-            mobile="9306443222",
-            password="admin123",
+            mobile="9999999999",
+            password="admin@123",
             role="ADMIN",
-           
-            
+            name="Admin User"
         )
-        return JsonResponse({"message": "Superuser created successfully!"})
+
+        return JsonResponse({
+            "message": "Superuser created successfully",
+            "user_id": user.user_id,
+            "mobile": user.mobile,
+            "name": user.name
+        }, status=201)
+
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
