@@ -171,10 +171,14 @@ def create_superuser(request):
     if User.objects.filter(is_superuser=True).exists():
         return JsonResponse({"message": "Superuser already exists."})
 
-    User.objects.create_superuser(
-        username="admin",
-        email="admin@example.com",
-        password="admin123",
-        mobile="9306443566"  # अगर आपने custom mobile field use किया है
-    )
-    return JsonResponse({"message": "Superuser created successfully!"})
+    try:
+        user = User.objects.create_superuser(
+            mobile="9306443222",
+            password="admin123",
+            role="ADMIN",
+           
+            
+        )
+        return JsonResponse({"message": "Superuser created successfully!"})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
