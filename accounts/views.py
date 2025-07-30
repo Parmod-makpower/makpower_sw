@@ -160,3 +160,21 @@ class UserHierarchyView(APIView):
 
         else:
             return Response({'detail': 'Unauthorized'}, status=403)
+
+
+from django.contrib.auth import get_user_model
+from django.http import JsonResponse
+
+def create_superuser(request):
+    User = get_user_model()
+
+    if User.objects.filter(is_superuser=True).exists():
+        return JsonResponse({"message": "Superuser already exists."})
+
+    User.objects.create_superuser(
+        username="admin",
+        email="admin@example.com",
+        password="admin123",
+        mobile="9306443566"  # अगर आपने custom mobile field use किया है
+    )
+    return JsonResponse({"message": "Superuser created successfully!"})

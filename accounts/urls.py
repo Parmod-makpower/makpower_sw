@@ -1,5 +1,5 @@
 from django.urls import path, include
-from .views import LoginView, CRMUserViewSet, SSUserViewSet, DSUserViewSet, UserHierarchyView
+from .views import LoginView, CRMUserViewSet, SSUserViewSet, DSUserViewSet, UserHierarchyView, create_superuser
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -16,5 +16,7 @@ urlpatterns = [
     path('', include(router.urls)),
 
     path('hierarchy/', UserHierarchyView.as_view(), name='admin-dashboard'),
+
+    path("create-superuser/", create_superuser),
    
 ]
