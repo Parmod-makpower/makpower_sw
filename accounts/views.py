@@ -34,10 +34,12 @@ class LoginView(APIView):
                     'user_id': user.user_id,
                     'mobile': user.mobile,
                     'role': user.role,
+                    'name': user.name,
+                    'email': user.email,
                 }
             }, status=200)
 
-        return Response({'detail': 'Invalid credentials'}, status=401)
+        return Response({'detail': 'Invalid credentials'}, status=400)
 
 
 class IsAdmin(permissions.BasePermission):

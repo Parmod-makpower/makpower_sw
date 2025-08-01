@@ -18,7 +18,6 @@ SECRET_KEY = os.environ.get("SECRET_KEY")
 # DEBUG = True
 DEBUG = os.environ.get("DEBUG", "False").lower() == "True"
 
-#2 ALLOWED_HOSTS = []
 ALLOWED_HOSTS = ['*']
 
 
@@ -144,16 +143,16 @@ REST_FRAMEWORK = {
 
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=60),
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
 
 
-# GOOGLE_CREDS = BASE_DIR / "credentials.json"
+GOOGLE_CREDS = BASE_DIR / "credentials.json"
 
-GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS_PATH", "/etc/secrets/credentials.json")
+# GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS_PATH", "/etc/secrets/credentials.json")
 
 
 # SHEET_ID = "1_UzX_ZU5RvCxG6rOJs0V9jwpvEqoFeCSCO6A6ZLgI4s"
