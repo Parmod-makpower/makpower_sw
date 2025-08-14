@@ -5,7 +5,7 @@ from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db.models import Q  
 from rest_framework.permissions import IsAuthenticated
-from .serializers import CRMUserSerializer, SSUserSerializer, DSUserSerializer
+from .serializers import CRMUserSerializer, SSUserSerializer, DSUserSerializer, UserSerializer
 from .models import CustomUser
 
 
@@ -29,14 +29,7 @@ class LoginView(APIView):
             return Response({
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
-                'user': {
-                    'id': user.id,
-                    'user_id': user.user_id,
-                    'mobile': user.mobile,
-                    'role': user.role,
-                    'name': user.name,
-                    'email': user.email,
-                }
+                'user': UserSerializer(user).data  # ✅ Full serialized user
             }, status=200)
 
         return Response({'detail': 'Invalid credentials'}, status=400)

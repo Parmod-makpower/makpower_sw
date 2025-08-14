@@ -1,118 +1,235 @@
-
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework import status
+from django.db import transaction
+from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder
+from products.models import Product
+from django.contrib.auth import get_user_model
+from .serializers import SSOrderSerializer, CRMVerifiedOrderSerializer, CRMVerifiedOrderHistorySerializer, CRMVerifiedOrderDetailSerializer
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import generics, permissions
 from rest_framework.generics import ListAPIView, RetrieveAPIView
-from rest_framework.pagination import PageNumberPagination
-from django.utils.dateparse import parse_date
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from rest_framework.generics import CreateAPIView, RetrieveUpdateAPIView, ListAPIView
-from .models import CRMVerifiedOrder, SSOrder
-from .serializers import CRMVerifiedOrderSerializer, SSOrderSerializer, CRMVerifiedOrderDetailSerializer, CRMVerifiedOrderListSerializer
+from django.shortcuts import get_object_or_404
 
-
+User = get_user_model()
 
 class SSOrderCreateView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def post(self, request):
-        user = request.user
-        if user.role != 'SS':
-            return Response({'detail': 'Only SS can place orders'}, status=403)
+        data = request.data
+        
+        try:
+            ss_user = User.objects.get(id=data['user_id'])
+            crm_user = User.objects.get(id=data['crm_id'])
+            total = data['total']
+            items = data['items']
+            scheme_items = data.get('eligibleSchemes', [])
 
-        data = request.data.copy()
-        data['ss'] = user.id
-        data['crm'] = user.crm.id if user.crm else None  # linked CRM
-        data['party_name'] = user.party_name
+            order = SSOrder.objects.create(
+                ss_user=ss_user,
+                assigned_crm=crm_user,
+                total_amount=total,
+            )
 
-        serializer = SSOrderSerializer(data=data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response({'message': 'Order placed successfully', 'order': serializer.data}, status=201)
-        return Response(serializer.errors, status=400)
+            # Add selected products
+            for item in items:
+                product = Product.objects.get(product_id=item['id'])  
+                SSOrderItem.objects.create(
+                    order=order,
+                    product=product,
+                    quantity=item['quantity'],
+                    price=item['price'] or 0,  
+                    is_scheme_item=False,
+                )
 
-# ✅ CRM creates or updates verified copy
-class CRMVerifiedOrderCreateView(CreateAPIView):
-    serializer_class = CRMVerifiedOrderSerializer
-    permission_classes = [IsAuthenticated]
+            # Add scheme reward items
+            for scheme in scheme_items:
+                for reward in scheme.get('rewards', []):
+                    product_id = reward.get('product') or reward.get('product_id')
+                    product = Product.objects.get(product_id=product_id) 
+                    SSOrderItem.objects.create(
+                        order=order,
+                        product=product,
+                        quantity=reward['quantity'],
+                        price=0,
+                        is_scheme_item=True,
+                    )
 
-    def perform_create(self, serializer):
-        serializer.save(verified_by=self.request.user)
+            return Response({
+                "message": "Order placed successfully.",
+                "order": SSOrderSerializer(order).data
+            }, status=status.HTTP_201_CREATED)
 
-# ✅ CRM updates verified copy
-class CRMVerifiedOrderUpdateView(RetrieveUpdateAPIView):
-    queryset = CRMVerifiedOrder.objects.all()
-    serializer_class = CRMVerifiedOrderSerializer
-    permission_classes = [IsAuthenticated]
+        except Exception as e:
+            print("❌ Exception occurred during order placement:")
+            import traceback
+            traceback.print_exc()
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-# ✅ CRM list its assigned SSOrders (without verified copy yet)
-class UnverifiedSSOrdersList(ListAPIView):
+class SSOrderHistoryView(ListAPIView):
     serializer_class = SSOrderSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
-        return SSOrder.objects.filter(crm=user).exclude(verified_order__isnull=False).order_by("-placed_at")
+        return SSOrder.objects.filter(ss_user=user).order_by('-created_at')
 
-
-class CRMOrderPagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = 'page_size'
-
-class CRMVerifiedOrderHistoryView(ListAPIView):
-    serializer_class = CRMVerifiedOrderListSerializer  # ✅ changed serializer
+class CRMOrderListView(ListAPIView):
+    serializer_class = SSOrderSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = CRMOrderPagination
 
     def get_queryset(self):
         user = self.request.user
-        queryset = CRMVerifiedOrder.objects.select_related("ss_order").filter(
-            verified_by=user
-        ).order_by("-verified_at")
+        # Exclude orders that already have any CRMVerifiedOrder (so CRM won't see verified ones)
+        return SSOrder.objects.filter(assigned_crm=user).exclude(crm_verified_versions__isnull=False).order_by('-created_at')
 
-        status = self.request.query_params.get("status")
-        start_date = self.request.query_params.get("start")
-        end_date = self.request.query_params.get("end")
-
-        if status:
-            queryset = queryset.filter(status=status.upper())
-        if start_date:
-            queryset = queryset.filter(verified_at__date__gte=parse_date(start_date))
-        if end_date:
-            queryset = queryset.filter(verified_at__date__lte=parse_date(end_date))
-
-        return queryset
-
-class CRMVerifiedOrderDetailView(RetrieveAPIView):
-    queryset = CRMVerifiedOrder.objects.all()
-    serializer_class = CRMVerifiedOrderDetailSerializer
+class CRMOrderVerifyView(APIView):
     permission_classes = [IsAuthenticated]
 
-# from django.utils.dateparse import parse_date
-# from rest_framework.generics import ListAPIView
-from .serializers import AdminVerifiedOrderListSerializer
-# from .models import CRMVerifiedOrder
-# from .serializers import CRMOrderPagination
-# from rest_framework.permissions import IsAuthenticated
+    def post(self, request, order_id):
+        try:
+            crm_user = request.user
+            data = request.data
 
-class AdminVerifiedOrderHistoryView(ListAPIView):
-    serializer_class = AdminVerifiedOrderListSerializer
+            # make sure the order exists and is assigned to this CRM
+            original_order = get_object_or_404(SSOrder, id=order_id, assigned_crm=crm_user)
+
+            # prevent double verification (simple guard)
+            if CRMVerifiedOrder.objects.filter(original_order=original_order).exists():
+                return Response({"error": "Order already verified"}, status=status.HTTP_400_BAD_REQUEST)
+
+            with transaction.atomic():
+                crm_order = CRMVerifiedOrder.objects.create(
+                    original_order=original_order,
+                    crm_user=crm_user,
+                    status=data['status'],
+                    notes=data.get('notes', ''),
+                    total_amount=data.get('total_amount', 0)
+                )
+
+                # IMPORTANT: only save item lines if NOT rejected
+                if data['status'] != 'REJECTED':
+                    for item in data.get('items', []):
+                        product = Product.objects.get(product_id=item['product'])
+                        CRMVerifiedOrderItem.objects.create(
+                            crm_order=crm_order,
+                            product=product,
+                            quantity=item['quantity'],
+                            price=item.get('price', 0)
+                        )
+
+            return Response({
+                "message": "Order verified successfully",
+                "crm_order": CRMVerifiedOrderSerializer(crm_order).data
+            }, status=status.HTTP_201_CREATED)
+
+        except Product.DoesNotExist:
+            return Response({"error": "Product not found"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+class SSOrderTrackView(RetrieveAPIView):
+    serializer_class = SSOrderSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = CRMOrderPagination
+    lookup_field = 'id'
+    lookup_url_kwarg = 'order_id'
+
+    def get_object(self):
+        # Only owner (ss_user) can track their order
+        user = self.request.user
+        order = get_object_or_404(SSOrder, id=self.kwargs['order_id'], ss_user=user)
+        return order
+
+
+
+def _is_admin(user):
+    # यदि आपके User मॉडल में role फील्ड है तो पहले वही चेक करें
+    role = getattr(user, "role", None)
+    if role and str(role).upper() == "ADMIN":
+        return True
+    # fallback: Django staff/superuser
+    return bool(user.is_staff or user.is_superuser)
+
+from rest_framework.pagination import PageNumberPagination
+
+class CRMVerifiedOrderPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+class CRMVerifiedOrdersList(generics.ListAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CRMVerifiedOrderHistorySerializer
+    pagination_class = CRMVerifiedOrderPagination   # ✅ Pagination added
 
     def get_queryset(self):
-        queryset = CRMVerifiedOrder.objects.select_related("ss_order", "verified_by").all().order_by("-verified_at")
-        status = self.request.query_params.get("status")
-        crm = self.request.query_params.get("crm")
-        start_date = self.request.query_params.get("start")
-        end_date = self.request.query_params.get("end")
+        qs = CRMVerifiedOrder.objects.select_related("original_order", "crm_user")\
+            .prefetch_related("items__product", "original_order__items__product")\
+            .order_by('-verified_at')
 
-        if status:
-            queryset = queryset.filter(status=status.upper())
-        if crm:
-            queryset = queryset.filter(verified_by_id=crm)
-        if start_date:
-            queryset = queryset.filter(verified_at__date__gte=parse_date(start_date))
-        if end_date:
-            queryset = queryset.filter(verified_at__date__lte=parse_date(end_date))
+        user = self.request.user
 
-        return queryset
+        # --- CRM filter (query param से) ---
+        crm_id = self.request.query_params.get("crm_id")
+        if crm_id:
+            qs = qs.filter(crm_user_id=crm_id)
+
+        # --- Date range filter ---
+        start_date = self.request.query_params.get("start_date")
+        end_date = self.request.query_params.get("end_date")
+        if start_date and end_date:
+            qs = qs.filter(verified_at__date__range=[start_date, end_date])
+
+        if _is_admin(user):
+            return qs
+        return qs.filter(crm_user=user)
+
+
+class CRMVerifiedOrderUpdate(generics.UpdateAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CRMVerifiedOrderSerializer
+    queryset = CRMVerifiedOrder.objects.all()
+
+    def get_queryset(self):
+        qs = self.queryset
+        user = self.request.user
+        if _is_admin(user):
+            return qs
+        return qs.filter(crm_user=user)
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.notes = request.data.get("notes", instance.notes)
+        instance.save()
+
+        items_data = request.data.get("items", [])
+        for item_data in items_data:
+            try:
+                item = instance.items.get(id=item_data["id"])
+                item.quantity = item_data["quantity"]
+                item.save()
+            except CRMVerifiedOrderItem.DoesNotExist:
+                pass
+
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+class CRMVerifiedOrderDetail(generics.RetrieveAPIView):
+    """
+    एक ही response में:
+    - SS का original order (items सहित)
+    - CRM का verified order (items सहित)
+    - compare list: product-wise SS_qty, CRM_qty, delta
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CRMVerifiedOrderDetailSerializer
+    queryset = CRMVerifiedOrder.objects.select_related("original_order", "crm_user")\
+        .prefetch_related("items__product", "original_order__items__product")
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if _is_admin(user):
+            return qs
+        return qs.filter(crm_user=user)

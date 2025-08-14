@@ -2,19 +2,19 @@ import dj_database_url
 from datetime import timedelta
 from pathlib import Path
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
+
 # SECRET_KEY = 'django-insecure-givl)sp9wo*=o9m2gtp*(tlq7m$w7016uddoii@k8waei0r---'
 SECRET_KEY = os.environ.get("SECRET_KEY")
 
-# SECURITY WARNING: don't run with debug turned on in production!
+
 # DEBUG = True
 DEBUG = os.environ.get("DEBUG", "False").lower() == "True"
 
@@ -36,6 +36,10 @@ INSTALLED_APPS = [
     'accounts',
     'products',
     'orders',
+
+    'cloudinary',
+    'cloudinary_storage',
+    
     
 ]
 
@@ -71,7 +75,6 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 
 # Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
     # 'default': {
@@ -80,11 +83,16 @@ DATABASES = {
     # }
 }
 
+
 database_url = os.environ.get("DATABASES_URL")
 DATABASES["default"] = dj_database_url.parse(database_url)
 
-# Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
+
+# External DB
+
+# DATABASES["default"] = dj_database_url.parse("postgresql://makpower_sw_s2yq_user:O6VKpBxUEEyuzhFcQIlsjePVgFyt89NY@dpg-d2epv7s9c44c7398oosg-a.oregon-postgres.render.com/makpower_sw_s2yq")
+
+
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -118,6 +126,8 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -157,3 +167,13 @@ GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS_PATH", "/etc/secrets/credentials.jso
 
 # SHEET_ID = "1_UzX_ZU5RvCxG6rOJs0V9jwpvEqoFeCSCO6A6ZLgI4s"
 SHEET_ID_NEW = "1fiDkMYjfXSptaiDnYJfdhXI69J5luXS9M-RR-cVpVYI"
+
+
+
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME'),
+    'API_KEY': os.getenv('CLOUDINARY_API_KEY'),
+    'API_SECRET': os.getenv('CLOUDINARY_API_SECRET')
+}
+
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'

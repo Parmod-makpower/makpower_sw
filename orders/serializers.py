@@ -1,152 +1,191 @@
-
-from products.models import Product  
+# 📁 orders/serializers.py
 from rest_framework import serializers
-from .models import SSOrder, SSOrderItem, CRMVerifiedOrder, CRMVerifiedOrderItem, CRMVerifiedOrderScheme
+from .models import SSOrder, SSOrderItem, CRMVerifiedOrder, CRMVerifiedOrderItem
+
+
+# ==========================
+# SS Order Serializers
+# ==========================
 
 class SSOrderItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+
     class Meta:
         model = SSOrderItem
-        fields = ['product_id', 'sale_name', 'price', 'quantity']
-
+        fields = ['id', 'product', 'product_name', 'quantity', 'price', 'is_scheme_item']
 
 
 class SSOrderSerializer(serializers.ModelSerializer):
-    items = SSOrderItemSerializer(many=True)
+    items = SSOrderItemSerializer(many=True, read_only=True)
+    ss_user_name = serializers.CharField(source='ss_user.name', read_only=True)
+    crm_name = serializers.CharField(source='assigned_crm.name', read_only=True)
+    ss_party_name = serializers.CharField(source='ss_user.party_name', read_only=True)
+    crm_history = serializers.SerializerMethodField()
 
     class Meta:
         model = SSOrder
-        fields = ['id', 'order_id', 'ss', 'crm','party_name', 'total_quantity', 'total_price', 'placed_at', 'applied_schemes', 'items']
-        read_only_fields = ['placed_at']
+        fields = [
+            'id', 'order_id',
+            'ss_party_name', 'ss_user', 'ss_user_name',
+            'assigned_crm', 'crm_name',
+            'total_amount', 'status', 'created_at',
+            'items', 'crm_history'
+        ]
 
-    def create(self, validated_data):
-        items_data = validated_data.pop('items')
-        applied_schemes = validated_data.get('applied_schemes', [])
+    def get_crm_history(self, obj):
+        return CRMVerifiedOrderSerializer(obj.crm_verified_versions.all(), many=True).data
 
-        # ✅ Inject sale_name in all scheme reward products
-        for scheme in applied_schemes:
-            for reward in scheme.get('rewards', []):
-                product_id = reward.get('product_id')
-                if product_id and 'sale_name' not in reward:
-                    try:
-                        product = Product.objects.get(product_id=product_id)
-                        reward['sale_name'] = product.product_name
-                    except Product.DoesNotExist:
-                        reward['sale_name'] = product_id  # fallback
 
-        # ✅ Save updated applied_schemes with sale_name included
-        validated_data['applied_schemes'] = applied_schemes
+# For Compare (SS side only)
+class SSOrderForCompareItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
 
-        # ✅ Create order and items
-        order = SSOrder.objects.create(**validated_data)
-        for item_data in items_data:
-            SSOrderItem.objects.create(order=order, **item_data)
+    class Meta:
+        model = SSOrderItem
+        fields = ['id', 'product', 'product_name', 'quantity', 'price', 'is_scheme_item']
 
-        return order
 
+class SSOrderForCompareSerializer(serializers.ModelSerializer):
+    items = SSOrderForCompareItemSerializer(many=True, read_only=True)
+    ss_user_name = serializers.CharField(source='ss_user.name', read_only=True)
+
+    class Meta:
+        model = SSOrder
+        fields = ['id', 'ss_user_name', 'total_amount', 'created_at', 'items']
+
+
+# ==========================
+# CRM Verified Order Serializers
+# ==========================
 
 class CRMVerifiedOrderItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+
     class Meta:
         model = CRMVerifiedOrderItem
-        fields = ['product_id', 'sale_name', 'price', 'quantity']
+        fields = ['id', 'product', 'product_name', 'quantity', 'price']
 
-class CRMVerifiedOrderSchemeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CRMVerifiedOrderScheme
-        fields = ['product_id', 'sale_name', 'quantity', 'is_auto_applied']
 
 class CRMVerifiedOrderSerializer(serializers.ModelSerializer):
-    items = CRMVerifiedOrderItemSerializer(many=True)
-    verified_schemes = CRMVerifiedOrderSchemeSerializer(many=True, required=False)
-    ss_order = serializers.PrimaryKeyRelatedField(queryset=SSOrder.objects.all())  # ✅ keep only this line
-    
+    items = CRMVerifiedOrderItemSerializer(many=True, read_only=True)
+    crm_name = serializers.CharField(source='crm_user.name', read_only=True)
+    order_id = serializers.CharField(source='original_order.order_id', read_only=True)
 
     class Meta:
         model = CRMVerifiedOrder
         fields = [
-            'id', 'ss_order', 'verified_by', 'total_quantity', 'total_price',
-            'status', 'notes', 'verified_at', 'items', 'verified_schemes'
+            'id', 'order_id', 'original_order', 'crm_user', 'crm_name',
+            'verified_at', 'status', 'notes', 'total_amount', 'items'
         ]
-        read_only_fields = ['verified_at']
 
 
-    def create(self, validated_data):
-        items_data = validated_data.pop('items')
-        schemes_data = validated_data.pop('verified_schemes', [])
+# For Compare (CRM side only)
+class CRMVerifiedOrderForCompareItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
 
-        order = CRMVerifiedOrder.objects.create(**validated_data)
-        for item_data in items_data:
-            CRMVerifiedOrderItem.objects.create(order=order, **item_data)
-        for scheme_data in schemes_data:
-            CRMVerifiedOrderScheme.objects.create(order=order, **scheme_data)
-        return order
+    class Meta:
+        model = CRMVerifiedOrderItem
+        fields = ['id', 'product', 'product_name', 'quantity', 'price']
 
-    def update(self, instance, validated_data):
-        items_data = validated_data.pop('items', None)
-        schemes_data = validated_data.pop('verified_schemes', None)
 
-        # Update main fields
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
-
-        if items_data is not None:
-            instance.items.all().delete()
-            for item_data in items_data:
-                CRMVerifiedOrderItem.objects.create(order=instance, **item_data)
-
-        if schemes_data is not None:
-            instance.verified_schemes.all().delete()
-            for scheme_data in schemes_data:
-                CRMVerifiedOrderScheme.objects.create(order=instance, **scheme_data)
-
-        return instance
-    
-# serializers.py
-
-class CRMVerifiedOrderListSerializer(serializers.ModelSerializer):
-    ss_order = SSOrderSerializer(read_only=True)  # ✅ order_id & party_name show honge
+class CRMVerifiedOrderForCompareSerializer(serializers.ModelSerializer):
+    items = CRMVerifiedOrderForCompareItemSerializer(many=True, read_only=True)
+    crm_name = serializers.CharField(source='crm_user.name', read_only=True)
 
     class Meta:
         model = CRMVerifiedOrder
-        fields = ['id', 'ss_order', 'status', 'verified_at']
+        fields = ['id', 'crm_name', 'verified_at', 'status', 'notes', 'total_amount', 'items']
 
-# serializers.py
+
+# ==========================
+# CRM History Serializers
+# ==========================
+
+class CRMVerifiedOrderItemHistorySerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+
+    class Meta:
+        model = CRMVerifiedOrderItem
+        fields = ['id', 'product', 'product_name', 'quantity', 'price']
+
+
+class CRMVerifiedOrderHistorySerializer(serializers.ModelSerializer):
+    items = CRMVerifiedOrderItemHistorySerializer(many=True, read_only=True)
+    original_order_id = serializers.IntegerField(source='original_order.id', read_only=True)
+    order_id = serializers.CharField(source='original_order.order_id', read_only=True)
+    crm_name = serializers.CharField(source='crm_user.name', read_only=True)
+    party_name = serializers.CharField(source='original_order.ss_user.party_name', read_only=True)
+
+
+    class Meta:
+        model = CRMVerifiedOrder
+        fields = [
+            'id', 'order_id', 'original_order_id', 'status','crm_name','party_name',
+            'notes', 'total_amount', 'verified_at', 'items'
+        ]
+
+
+# ==========================
+# Compare Serializer
+# ==========================
+
+class CompareRowSerializer(serializers.Serializer):
+    product = serializers.IntegerField()
+    product_name = serializers.CharField()
+    ss_qty = serializers.IntegerField()
+    crm_qty = serializers.IntegerField()
+    delta = serializers.IntegerField()
+
 
 class CRMVerifiedOrderDetailSerializer(serializers.ModelSerializer):
-    ss_order = SSOrderSerializer()
-    items = CRMVerifiedOrderItemSerializer(many=True)
-    verified_schemes = CRMVerifiedOrderSchemeSerializer(many=True)
-    
+    order_id = serializers.CharField(source='original_order.order_id', read_only=True)
+    original_order_detail = SSOrderForCompareSerializer(source='original_order', read_only=True)
+    verified_order_detail = CRMVerifiedOrderForCompareSerializer(source='*', read_only=True)
+    compare = serializers.SerializerMethodField()
+
     class Meta:
         model = CRMVerifiedOrder
         fields = [
-            "id",
-            "ss_order",
-            "verified_by",
-            "verified_at",
-            "status",
-            "notes",
-            "total_quantity",
-            "total_price",
-            "items",
-            "verified_schemes"
+            'id', 'order_id',
+            'original_order_detail',
+            'verified_order_detail',
+            'compare',
         ]
 
+    def get_compare(self, obj):
+        # SS side items
+        ss_items = obj.original_order.items.all()
+        ss_map = {
+            it.product_id: {
+                "product": it.product_id,
+                "product_name": getattr(it.product, "product_name", ""),
+                "ss_qty": int(it.quantity)
+            }
+            for it in ss_items
+        }
 
-# orders/serializers.py (bottom me add karo)
+        # CRM side items
+        crm_items = obj.items.all()
+        crm_map = {
+            it.product_id: {
+                "product": it.product_id,
+                "product_name": getattr(it.product, "product_name", ""),
+                "crm_qty": int(it.quantity)
+            }
+            for it in crm_items
+        }
 
-from accounts.models import CustomUser
-from .models import CRMVerifiedOrder
-
-class SimpleCRMSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CustomUser
-        fields = ['id', 'name', 'mobile']
-
-class AdminVerifiedOrderListSerializer(serializers.ModelSerializer):
-    ss_order = SSOrderSerializer(read_only=True)
-    verified_by = SimpleCRMSerializer(read_only=True)
-
-    class Meta:
-        model = CRMVerifiedOrder
-        fields = ['id', 'ss_order', 'verified_by', 'status', 'verified_at']
+        product_ids = sorted(set(list(ss_map.keys()) + list(crm_map.keys())))
+        rows = []
+        for pid in product_ids:
+            name = (crm_map.get(pid) or ss_map.get(pid)).get("product_name", "")
+            ss_q = ss_map.get(pid, {}).get("ss_qty", 0)
+            crm_q = crm_map.get(pid, {}).get("crm_qty", 0)
+            rows.append({
+                "product": pid,
+                "product_name": name,
+                "ss_qty": ss_q,
+                "crm_qty": crm_q,
+                "delta": crm_q - ss_q
+            })
+        return CompareRowSerializer(rows, many=True).data

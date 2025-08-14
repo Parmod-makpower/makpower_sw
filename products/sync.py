@@ -4,28 +4,37 @@ from .models import Product
 from .utils import get_sheet
 
 def sheet_to_db():
-    sheet = get_sheet(sheet_id=settings.SHEET_ID_NEW)
-    rows = sheet.get_all_records()
+    try:
+        sheet = get_sheet(sheet_id=settings.SHEET_ID_NEW)
+        rows = sheet.get_all_records()
 
-    with transaction.atomic():
-        # Step 1: Delete all old data
-        Product.objects.all().delete()
+        if not rows:
+            print("⚠️ Sheet is empty — no data to sync.")
+            return
 
-        # Step 2: Prepare new data
-        products = []
-        for row in rows:
-            product = Product(
-                product_id=row.get('product_id'),
-                product_name=row.get('product_name'),
-                category=row.get('category'),
-                sale_name=row.get('sale_name'),
-                live_stock=row.get('live_stock'),
-                cartoon_size=row.get('cartoon_size'),
-                price=row.get('price')
-            )
-            products.append(product)
+        updated = 0
 
-        # Step 3: Bulk insert
-        Product.objects.bulk_create(products)
+        with transaction.atomic():
+            for row in rows:
+                product_id = row.get("product_id")
+                if not product_id:
+                    continue  # Skip rows without product_id
 
-    print(f"✅ Inserted {len(products)} products from Google Sheet after clean delete.")
+                try:
+                    product = Product.objects.get(product_id=product_id)
+                    live_stock_from_sheet = row.get("live_stock")
+
+                    # Only update if value is different
+                    if product.live_stock != live_stock_from_sheet:
+                        product.live_stock = live_stock_from_sheet
+                        product.save(update_fields=["live_stock"])
+                        updated += 1
+
+                except Product.DoesNotExist:
+                    # Skip if product not found
+                    continue
+
+        print(f"✅ Synced: {updated} products updated.")
+
+    except Exception as e:
+        print(f"❌ Sync failed due to error: {e}")
