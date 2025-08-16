@@ -57,21 +57,21 @@ mobile_validator = RegexValidator(regex=r'^\d{10}$', message='Mobile number must
 class CustomUser(AbstractBaseUser, PermissionsMixin):
     user_id = models.CharField(max_length=20, unique=True)
     mobile = models.CharField(max_length=15, unique=True, validators=[mobile_validator])  # ✅ Added validator
-    role = models.CharField(max_length=10, choices=USER_ROLES)
+    role = models.CharField(max_length=10, choices=USER_ROLES, db_index=True)
 
     name = models.CharField(max_length=100, blank=True, null=True) 
     email = models.EmailField(blank=True, null=True)
-    party_name = models.CharField(max_length=150, blank=True, null=True)  
+    party_name = models.CharField(max_length=150, blank=True, null=True, db_index=True)  
     dob = models.DateField(blank=True, null=True)
 
-    crm = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='crm_users')
+    crm = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='crm_users', db_index=True)
     ss = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='ss_users')
 
     created_by = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='created_users')
 
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     USERNAME_FIELD = 'mobile'
     REQUIRED_FIELDS = ['role']

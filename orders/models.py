@@ -5,11 +5,11 @@ from products.models import Product
 import uuid
 
 class SSOrder(models.Model):
-    ss_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='ss_orders')
-    assigned_crm = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='assigned_orders')
+    ss_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='ss_orders', db_index=True)
+    assigned_crm = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='assigned_orders', db_index=True)
     order_id = models.CharField(max_length=20, unique=True, editable=False , null=True, blank=True)  # 🔑 unique order id
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     status = models.CharField(max_length=20, default='PENDING')
 
     def save(self, *args, **kwargs):
@@ -20,8 +20,8 @@ class SSOrder(models.Model):
 
 
 class SSOrderItem(models.Model):
-    order = models.ForeignKey(SSOrder, on_delete=models.CASCADE, related_name='items')
-    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    order = models.ForeignKey(SSOrder, on_delete=models.CASCADE, related_name='items',db_index=True)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, db_index=True)
     quantity = models.PositiveIntegerField()
     price = models.DecimalField(max_digits=8, decimal_places=2)
     is_scheme_item = models.BooleanField(default=False)
@@ -29,8 +29,8 @@ class SSOrderItem(models.Model):
 # orders/models.py
 
 class CRMVerifiedOrder(models.Model):
-    original_order = models.ForeignKey(SSOrder, on_delete=models.CASCADE, related_name="crm_verified_versions")
-    crm_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="verified_orders")
+    original_order = models.ForeignKey(SSOrder, on_delete=models.CASCADE, related_name="crm_verified_versions", db_index=True)
+    crm_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="verified_orders", db_index=True)
     verified_at = models.DateTimeField(auto_now_add=True)
     status = models.CharField(max_length=20, choices=[
         ('APPROVED', 'Approved'),
@@ -42,7 +42,7 @@ class CRMVerifiedOrder(models.Model):
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
 class CRMVerifiedOrderItem(models.Model):
-    crm_order = models.ForeignKey(CRMVerifiedOrder, on_delete=models.CASCADE, related_name='items')
-    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    crm_order = models.ForeignKey(CRMVerifiedOrder, on_delete=models.CASCADE, related_name='items', db_index=True)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, db_index=True)
     quantity = models.PositiveIntegerField()
     price = models.DecimalField(max_digits=8, decimal_places=2, default=0)

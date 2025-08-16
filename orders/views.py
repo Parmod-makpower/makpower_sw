@@ -65,13 +65,23 @@ class SSOrderCreateView(APIView):
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+from rest_framework.pagination import PageNumberPagination
+
+class LargeResultsSetPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
 class SSOrderHistoryView(ListAPIView):
     serializer_class = SSOrderSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = LargeResultsSetPagination
 
     def get_queryset(self):
         user = self.request.user
-        return SSOrder.objects.filter(ss_user=user).order_by('-created_at')
+        return SSOrder.objects.filter(ss_user=user).select_related(
+            "ss_user", "assigned_crm"
+        ).prefetch_related("items__product").order_by("-created_at")
 
 class CRMOrderListView(ListAPIView):
     serializer_class = SSOrderSerializer
