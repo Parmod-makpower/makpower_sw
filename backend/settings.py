@@ -11,12 +11,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 
-SECRET_KEY = 'django-insecure-givl)sp9wo*=o9m2gtp*(tlq7m$w7016uddoii@k8waei0r---'
-# SECRET_KEY = os.environ.get("SECRET_KEY")
+# SECRET_KEY = 'django-insecure-givl)sp9wo*=o9m2gtp*(tlq7m$w7016uddoii@k8waei0r---'
+SECRET_KEY = os.environ.get("SECRET_KEY")
 
 
-DEBUG = True
-# DEBUG = os.environ.get("DEBUG", "False").lower() == "True"
+# DEBUG = True
+DEBUG = os.environ.get("DEBUG", "False").lower() == "True"
 
 ALLOWED_HOSTS = ['*']
 
@@ -84,13 +84,13 @@ DATABASES = {
 }
 
 
-# database_url = os.environ.get("DATABASES_URL")
-# DATABASES["default"] = dj_database_url.parse(database_url)
+database_url = os.environ.get("DATABASES_URL")
+DATABASES["default"] = dj_database_url.parse(database_url)
 
 
 # External DB
 
-DATABASES["default"] = dj_database_url.parse("postgresql://makpower_sw_s2yq_user:O6VKpBxUEEyuzhFcQIlsjePVgFyt89NY@dpg-d2epv7s9c44c7398oosg-a.oregon-postgres.render.com/makpower_sw_s2yq")
+# DATABASES["default"] = dj_database_url.parse("postgresql://makpower_sw_s2yq_user:O6VKpBxUEEyuzhFcQIlsjePVgFyt89NY@dpg-d2epv7s9c44c7398oosg-a.oregon-postgres.render.com/makpower_sw_s2yq")
 
 
 
@@ -159,9 +159,9 @@ SIMPLE_JWT = {
 
 
 
-GOOGLE_CREDS = BASE_DIR / "credentials.json"
+# GOOGLE_CREDS = BASE_DIR / "credentials.json"
 
-# GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS_PATH", "/etc/secrets/credentials.json")
+GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS_PATH", "/etc/secrets/credentials.json")
 
 
 # SHEET_ID = "1_UzX_ZU5RvCxG6rOJs0V9jwpvEqoFeCSCO6A6ZLgI4s"
