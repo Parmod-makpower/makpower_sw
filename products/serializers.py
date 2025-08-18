@@ -48,7 +48,6 @@ class SchemeConditionSerializer(serializers.ModelSerializer):
         model = SchemeCondition
         fields = ['id', 'product', 'product_name', 'min_quantity']
 
-
 class SchemeRewardSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source='product.product_name', read_only=True)
 
@@ -56,14 +55,13 @@ class SchemeRewardSerializer(serializers.ModelSerializer):
         model = SchemeReward
         fields = ['id', 'product', 'product_name', 'quantity']
 
-
 class SchemeSerializer(serializers.ModelSerializer):
     conditions = SchemeConditionSerializer(many=True)
     rewards = SchemeRewardSerializer(many=True)
 
     class Meta:
         model = Scheme
-        fields = ['id', 'name', 'start_date', 'end_date', 'created_by', 'conditions', 'rewards']
+        fields = ['id', 'created_by', 'conditions', 'rewards']  # Removed: name, start_date, end_date
 
     def create(self, validated_data):
         conditions_data = validated_data.pop('conditions', [])
@@ -80,18 +78,12 @@ class SchemeSerializer(serializers.ModelSerializer):
         return scheme
 
     def update(self, instance, validated_data):
-        # Update basic fields
-        instance.name = validated_data.get('name', instance.name)
-        instance.start_date = validated_data.get('start_date', instance.start_date)
-        instance.end_date = validated_data.get('end_date', instance.end_date)
         instance.created_by = validated_data.get('created_by', instance.created_by)
         instance.save()
 
-        # Delete old nested
         instance.conditions.all().delete()
         instance.rewards.all().delete()
 
-        # Add new nested
         for condition in validated_data.get('conditions', []):
             SchemeCondition.objects.create(scheme=instance, **condition)
 
@@ -99,4 +91,3 @@ class SchemeSerializer(serializers.ModelSerializer):
             SchemeReward.objects.create(scheme=instance, **reward)
 
         return instance
-

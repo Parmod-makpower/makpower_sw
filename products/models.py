@@ -23,15 +23,11 @@ class SaleName(models.Model):
         return f"{self.sale_name} for {self.product.product_name}"
     
 
-# models.py
 class Scheme(models.Model):
-    name = models.CharField(max_length=255, blank=True)
-    start_date = models.DateField()
-    end_date = models.DateField()
     created_by = models.CharField(max_length=100)
 
     def __str__(self):
-        return f"{self.name or 'Unnamed Scheme'}"
+        return f"Scheme {self.id}"  # ID दिखाएंगे क्योंकि name हटा दिया है
 
 class SchemeCondition(models.Model):
     scheme = models.ForeignKey(Scheme, on_delete=models.CASCADE, related_name='conditions')
@@ -41,7 +37,6 @@ class SchemeCondition(models.Model):
     def __str__(self):
         return f"Buy {self.min_quantity} of {self.product}"
 
-
 class SchemeReward(models.Model):
     scheme = models.ForeignKey(Scheme, on_delete=models.CASCADE, related_name='rewards')
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
@@ -49,4 +44,3 @@ class SchemeReward(models.Model):
 
     def __str__(self):
         return f"Get {self.quantity} free {self.product}"
-    
