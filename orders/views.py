@@ -10,6 +10,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework import generics, permissions
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from django.shortcuts import get_object_or_404
+from rest_framework.pagination import PageNumberPagination
+
 
 User = get_user_model()
 
@@ -65,24 +67,20 @@ class SSOrderCreateView(APIView):
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-from rest_framework.pagination import PageNumberPagination
 
-class LargeResultsSetPagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = 'page_size'
-    max_page_size = 100
-
-class SSOrderHistoryView(ListAPIView):
-    serializer_class = SSOrderSerializer
+class SSOrderHistoryView(APIView):
     permission_classes = [IsAuthenticated]
-    pagination_class = LargeResultsSetPagination
 
-    def get_queryset(self):
-        user = self.request.user
-        return SSOrder.objects.filter(ss_user=user).select_related(
+    def get(self, request):
+        user = request.user
+        orders = SSOrder.objects.filter(ss_user=user).select_related(
             "ss_user", "assigned_crm"
-        ).prefetch_related("items__product").order_by("-created_at")
+        ).prefetch_related("items__product").order_by("-created_at")[:20]
 
+        serializer = SSOrderSerializer(orders, many=True)
+        return Response({"results": serializer.data})  # ✅ अब results key आएगी
+    
+    
 class CRMOrderListView(ListAPIView):
     serializer_class = SSOrderSerializer
     permission_classes = [IsAuthenticated]

@@ -113,7 +113,7 @@ class SaleNameViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        product_id = self.request.query_params.get('product_id')
+        product_id = self.request.query_params.get('-product_id')
         if product_id:
             queryset = queryset.filter(product__product_id=product_id)
         return queryset
