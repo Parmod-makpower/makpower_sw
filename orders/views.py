@@ -5,7 +5,7 @@ from django.db import transaction
 from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder
 from products.models import Product
 from django.contrib.auth import get_user_model
-from .serializers import SSOrderSerializer, CRMVerifiedOrderSerializer, CRMVerifiedOrderHistorySerializer, CRMVerifiedOrderDetailSerializer
+from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderHistorySerializer, CRMVerifiedOrderDetailSerializer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import generics, permissions
 from rest_framework.generics import ListAPIView, RetrieveAPIView
@@ -80,15 +80,21 @@ class SSOrderHistoryView(APIView):
         serializer = SSOrderSerializer(orders, many=True)
         return Response({"results": serializer.data})  # ✅ अब results key आएगी
     
-    
+    # views.py
 class CRMOrderListView(ListAPIView):
-    serializer_class = SSOrderSerializer
+    serializer_class = SS_to_CRM_Orders
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
-        # Exclude orders that already have any CRMVerifiedOrder (so CRM won't see verified ones)
-        return SSOrder.objects.filter(assigned_crm=user).exclude(crm_verified_versions__isnull=False).order_by('-created_at')
+        return (
+            SSOrder.objects.filter(assigned_crm=user)
+            .exclude(crm_verified_versions__isnull=False)   # already verified हटाना
+            .select_related("ss_user", "assigned_crm")      # foreign keys optimize
+            .prefetch_related("items__product")             # items + product optimize
+            .order_by("-created_at")
+        )
+
 
 class CRMOrderVerifyView(APIView):
     permission_classes = [IsAuthenticated]
@@ -135,6 +141,7 @@ class CRMOrderVerifyView(APIView):
         except Exception as e:
             import traceback; traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 class SSOrderTrackView(RetrieveAPIView):
     serializer_class = SSOrderSerializer

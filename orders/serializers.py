@@ -35,6 +35,24 @@ class SSOrderSerializer(serializers.ModelSerializer):
     def get_crm_history(self, obj):
         return CRMVerifiedOrderSerializer(obj.crm_verified_versions.all(), many=True).data
 
+# orders/serializers.py
+
+class SS_to_CRM_Orders(serializers.ModelSerializer):
+    items = SSOrderItemSerializer(many=True, read_only=True)
+    ss_user_name = serializers.CharField(source='ss_user.name', read_only=True)
+    crm_name = serializers.CharField(source='assigned_crm.name', read_only=True)
+    ss_party_name = serializers.CharField(source='ss_user.party_name', read_only=True)
+
+    class Meta:
+        model = SSOrder
+        fields = [
+            'id', 'order_id',
+            'ss_party_name', 'ss_user', 'ss_user_name',
+            'assigned_crm', 'crm_name',
+            'total_amount', 'status', 'created_at',
+            'items'
+        ]
+
 
 # For Compare (SS side only)
 class SSOrderForCompareItemSerializer(serializers.ModelSerializer):

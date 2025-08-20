@@ -5,7 +5,7 @@ from .models import CustomUser
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ['id', 'user_id', 'mobile', 'role', 'crm', 'ss', 'is_active', 'created_at']
+        fields = ['id', 'user_id','name', 'mobile', 'role', 'crm', 'ss', 'is_active', 'created_at']
 
 
 class CRMUserSerializer(serializers.ModelSerializer):
