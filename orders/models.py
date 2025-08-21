@@ -17,7 +17,8 @@ class SSOrder(models.Model):
             # Example format: ORD-ABC12345
             self.order_id = "ORD-" + uuid.uuid4().hex[:8].upper()
         super().save(*args, **kwargs)
-
+    
+  
 
 class SSOrderItem(models.Model):
     order = models.ForeignKey(SSOrder, on_delete=models.CASCADE, related_name='items',db_index=True)
@@ -31,15 +32,24 @@ class SSOrderItem(models.Model):
 class CRMVerifiedOrder(models.Model):
     original_order = models.ForeignKey(SSOrder, on_delete=models.CASCADE, related_name="crm_verified_versions", db_index=True)
     crm_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="verified_orders", db_index=True)
-    verified_at = models.DateTimeField(auto_now_add=True)
-    status = models.CharField(max_length=20, choices=[
-        ('APPROVED', 'Approved'),
-        ('REJECTED', 'Rejected'),
-        ('DISPATCH', 'Dispatch'),
-        ('DELIVERED', 'Delivered')
-    ])
+    verified_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    status = models.CharField(
+        max_length=20,
+        choices=[('APPROVED', 'Approved'), ('REJECTED', 'Rejected'), ('DISPATCH', 'Dispatch'), ('DELIVERED', 'Delivered')],
+        db_index=True,
+        )
     notes = models.TextField(blank=True, null=True)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["crm_user", "verified_at"]),
+            models.Index(fields=["original_order", "verified_at"]),
+            models.Index(fields=["status"]),
+        ]
+        ordering = ["-verified_at"]
+
 
 class CRMVerifiedOrderItem(models.Model):
     crm_order = models.ForeignKey(CRMVerifiedOrder, on_delete=models.CASCADE, related_name='items', db_index=True)
