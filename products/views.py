@@ -100,7 +100,6 @@ class ProductBulkUpload(APIView):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-
 class SaleNamePagination(PageNumberPagination):
     page_size = 10  # default
     page_size_query_param = 'page_size'
@@ -168,7 +167,6 @@ class SchemeViewSet(viewsets.ModelViewSet):
     queryset = Scheme.objects.all().order_by('-id')
     serializer_class = SchemeSerializer
     permission_classes = [IsAuthenticated]
-
 
 
 @api_view(['GET'])

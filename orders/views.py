@@ -14,8 +14,6 @@ from decimal import Decimal
 from .pagination import StandardResultsSetPagination
 
 
-
-
 User = get_user_model()
 
 class SSOrderCreateView(APIView):
