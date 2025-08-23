@@ -12,14 +12,16 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from decimal import Decimal
 from .pagination import StandardResultsSetPagination
+from .utils import send_whatsapp_message
 
 
 User = get_user_model()
 
+
 class SSOrderCreateView(APIView):
     def post(self, request):
         data = request.data
-        
+
         try:
             ss_user = User.objects.get(id=data['user_id'])
             crm_user = User.objects.get(id=data['crm_id'])
@@ -56,6 +58,23 @@ class SSOrderCreateView(APIView):
                         price=0,
                         is_scheme_item=True,
                     )
+
+            # ✅ CRM नंबर mapping
+            crm_numbers = {
+                2: "7428828836",
+                4: "8930613366",
+            }
+            crm_number = crm_numbers.get(crm_user.id)
+
+            # ✅ WhatsApp Message भेजो
+            if crm_number:
+                msg = (
+                    f"📦 New Order Received!\n"
+                    f"Party: {ss_user.party_name or ss_user.name}\n"
+                    f"Order ID: {order.order_id}\n"
+                    f"Total: ₹{order.total_amount}"
+                )
+                send_whatsapp_message(crm_number, msg)
 
             return Response({
                 "message": "Order placed successfully.",
