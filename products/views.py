@@ -16,25 +16,44 @@ from .serializers import (  ProductSerializer, SaleNameSerializer,SchemeSerializ
 
 
 
+
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all().order_by('product_id')
     serializer_class = ProductSerializer
     lookup_field = 'product_id'
 
+    # 🔹 Product Image Upload
     @action(detail=True, methods=['post'], parser_classes=[MultiPartParser])
     def upload_image(self, request, product_id=None):
+        """ ✅ Upload/Update Product Image """
         product = self.get_object()
         image_file = request.FILES.get('image')
-        
-        print("Image File:", image_file)
-        
+
+        if not image_file:
+            return Response({"status": "error", "message": "No image uploaded"}, status=400)
+
         product.image = image_file
         product.save()
-        
-        print("Image uploaded to Cloudinary:")
-        print("Image URL:", product.image.url)
-        
-        return Response({'status': 'image uploaded', 'url': product.image.url})
+
+        return Response({
+            "status": "success",
+            "message": "Image uploaded successfully",
+            "url": product.image.url
+        })
+
+    # 🔹 Product Active/Inactive Toggle
+    @action(detail=True, methods=['post'])
+    def toggle_active(self, request, product_id=None):
+        """ ✅ Toggle Active/Inactive status of a product """
+        product = self.get_object()
+        product.is_active = not product.is_active
+        product.save()
+
+        return Response({
+            "status": "success",
+            "is_active": product.is_active
+        })
+
 
 
 
@@ -171,6 +190,6 @@ class SchemeViewSet(viewsets.ModelViewSet):
 
 @api_view(['GET'])
 def get_all_products_with_salenames(request):
-    products = Product.objects.prefetch_related('sale_names').all().order_by('product_id')
+    products = Product.objects.filter(is_active=True).prefetch_related('sale_names').order_by('product_id')  # ✅ केवल active products
     serializer = ProductWithSaleNameSerializer(products, many=True)
     return Response(serializer.data)
