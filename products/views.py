@@ -112,7 +112,7 @@ class SaleNameViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        product_id = self.request.query_params.get('-product_id')
+        product_id = self.request.query_params.get('product_id')  # ← छोटा bug था '-product_id'
         if product_id:
             queryset = queryset.filter(product__product_id=product_id)
         return queryset
@@ -120,6 +120,12 @@ class SaleNameViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['delete'], url_path='delete-by-product/(?P<product_id>[^/.]+)')
     def delete_by_product(self, request, product_id=None):
         count, _ = SaleName.objects.filter(product__product_id=product_id).delete()
+        return Response({"message": f"{count} sale names deleted successfully."}, status=status.HTTP_200_OK)
+
+    # 🆕 Delete All SaleNames
+    @action(detail=False, methods=['delete'], url_path='delete-all')
+    def delete_all(self, request):
+        count, _ = SaleName.objects.all().delete()
         return Response({"message": f"{count} sale names deleted successfully."}, status=status.HTTP_200_OK)
 
 
@@ -171,6 +177,12 @@ class SchemeViewSet(viewsets.ModelViewSet):
 
 @api_view(['GET'])
 def get_all_products_with_salenames(request):
-    products = Product.objects.prefetch_related('sale_names').all().order_by('product_id')
+    products = Product.objects.filter(is_active=True).prefetch_related('sale_names').order_by('product_id')
+    serializer = ProductWithSaleNameSerializer(products, many=True)
+    return Response(serializer.data)
+
+@api_view(['GET'])
+def get_inactive_products(request):
+    products = Product.objects.filter(is_active=False).prefetch_related('sale_names').order_by('product_id')
     serializer = ProductWithSaleNameSerializer(products, many=True)
     return Response(serializer.data)

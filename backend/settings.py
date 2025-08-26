@@ -151,8 +151,8 @@ REST_FRAMEWORK = {
 
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=30),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=60),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=120),
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
@@ -160,7 +160,7 @@ SIMPLE_JWT = {
 
 # GOOGLE_CREDS = BASE_DIR / "credentials.json"
 
-# GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS_PATH", "/etc/secrets/credentials.json")
+GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS_PATH", "/etc/secrets/credentials.json")
 
 
 SHEET_ID_NEW = "1fiDkMYjfXSptaiDnYJfdhXI69J5luXS9M-RR-cVpVYI"

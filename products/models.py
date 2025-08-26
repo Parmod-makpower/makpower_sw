@@ -10,6 +10,7 @@ class Product(models.Model):
     price = models.CharField(max_length=10, null=True, blank=True)
     live_stock = models.IntegerField( null=True, blank=True)
     image = CloudinaryField('image', blank=True, null=True) 
+    is_active = models.BooleanField(default=True)  # ✅ नया field
 
     def __str__(self):
         return f"{self.product_id} - {self.product_name}"

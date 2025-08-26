@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import ( ProductViewSet,ProductBulkTemplateDownload,ProductBulkUpload, SaleNameViewSet, SaleNameBulkUploadView,
-    SchemeViewSet,get_all_products_with_salenames
+    SchemeViewSet,get_all_products_with_salenames, get_inactive_products
 )
 
 router = DefaultRouter()
@@ -14,6 +14,7 @@ urlpatterns = [
     path('sale-names/bulk-upload/', SaleNameBulkUploadView.as_view(), name='sale-name-bulk-upload'),
     path("products/bulk-template/", ProductBulkTemplateDownload.as_view(), name="product-bulk-template"),
     path("products/bulk-upload/", ProductBulkUpload.as_view(), name="product-bulk-upload"),
+    path('products/inactive/', get_inactive_products, name="inactive-products"),  
     path('all-products/', get_all_products_with_salenames),
     path('', include(router.urls)),
 ]
