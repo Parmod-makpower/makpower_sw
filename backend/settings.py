@@ -90,7 +90,7 @@ DATABASES["default"] = dj_database_url.parse(database_url)
 
 # External DB
 
-# DATABASES["default"] = dj_database_url.parse("postgresql://makpower_sw_s2yq_user:O6VKpBxUEEyuzhFcQIlsjePVgFyt89NY@dpg-d2epv7s9c44c7398oosg-a.oregon-postgres.render.com/makpower_sw_s2yq")
+# DATABASES["default"] = dj_database_url.parse("postgresql://makpower_sw_78y0_user:jpTlzQAL4ssG0LHoM4TFFkX2APLkUZo2@dpg-d2onccvdiees73fl00c0-a.oregon-postgres.render.com/makpower_sw_78y0")
 
 
 
