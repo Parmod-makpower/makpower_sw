@@ -12,7 +12,7 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from decimal import Decimal
 from .pagination import StandardResultsSetPagination
-from .utils import send_whatsapp_message
+from .utils import send_whatsapp_template
 
 
 User = get_user_model()
@@ -68,13 +68,15 @@ class SSOrderCreateView(APIView):
 
             # ✅ WhatsApp Message भेजो
             if crm_number:
-                msg = (
-                    f"📦 New Order Received!\n"
-                    f"Party: {ss_user.party_name or ss_user.name}\n"
-                    f"Order ID: {order.order_id}\n"
-                    f"Total: ₹{order.total_amount}"
-                )
-                send_whatsapp_message(crm_number, msg)
+                template_name = "order_updation"  # Meta console में जो template बनाया है उसका नाम
+                template_language = "EN"  # template language
+                parameters = [
+                        ss_user.party_name or ss_user.name,  # {{1}}
+                        str(order.order_id),                 # {{2}}
+                        str(order.total_amount)              # {{3}}
+                    ]
+                send_whatsapp_template(crm_number, template_name, template_language, parameters)
+
 
             return Response({
                 "message": "Order placed successfully.",
