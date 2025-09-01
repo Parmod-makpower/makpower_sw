@@ -161,8 +161,9 @@ SIMPLE_JWT = {
 
 # GOOGLE_CREDS = BASE_DIR / "credentials.json"
 
-GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS_PATH", "/etc/secrets/credentials.json")
+# GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS_PATH", "/etc/secrets/credentials.json")GOOGLE_CREDS_JSON
 
+GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS_JSON")
 
 SHEET_ID_NEW = "1fiDkMYjfXSptaiDnYJfdhXI69J5luXS9M-RR-cVpVYI"
 
