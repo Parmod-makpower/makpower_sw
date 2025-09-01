@@ -12,6 +12,7 @@ def sheet_to_db():
             print("⚠️ Sheet is empty — no data to sync.")
             return
 
+        products_to_update = []
         updated = 0
 
         with transaction.atomic():
@@ -27,12 +28,16 @@ def sheet_to_db():
                     # Only update if value is different
                     if product.live_stock != live_stock_from_sheet:
                         product.live_stock = live_stock_from_sheet
-                        product.save(update_fields=["live_stock"])
+                        products_to_update.append(product)
                         updated += 1
 
                 except Product.DoesNotExist:
                     # Skip if product not found
                     continue
+
+            # ✅ Bulk update at once
+            if products_to_update:
+                Product.objects.bulk_update(products_to_update, ["live_stock"])
 
         print(f"✅ Synced: {updated} products updated.")
 
