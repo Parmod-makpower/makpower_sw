@@ -2,7 +2,6 @@ import dj_database_url
 from datetime import timedelta
 from pathlib import Path
 import os, json
-from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -160,15 +159,10 @@ SIMPLE_JWT = {
 
 
 
-
-GOOGLE_CREDS = json.loads(os.environ.get("GOOGLE_CREDS_JSON", "{}"))
-
-
 # GOOGLE_CREDS = BASE_DIR / "credentials.json"
 
-# GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS_PATH", "/etc/secrets/credentials.json")GOOGLE_CREDS_JSON
-
-# GOOGLE_CREDS = os.environ.get("GOOGLE_CREDS_JSON")
+GOOGLE_CREDS_CONTENT = os.getenv("GOOGLE_CREDENTIALS_JSON")
+GOOGLE_CREDS = json.loads(GOOGLE_CREDS_CONTENT) if GOOGLE_CREDS_CONTENT else None
 
 SHEET_ID_NEW = "1fiDkMYjfXSptaiDnYJfdhXI69J5luXS9M-RR-cVpVYI"
 
