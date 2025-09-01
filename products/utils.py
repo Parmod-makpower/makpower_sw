@@ -8,9 +8,7 @@ def get_sheet(sheet_id=None):
         'https://spreadsheets.google.com/feeds',
         'https://www.googleapis.com/auth/drive'
     ]
-    # creds = ServiceAccountCredentials.from_json_keyfile_name(settings.GOOGLE_CREDS, scope)
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(settings.GOOGLE_CREDS, scope)
-
+    creds = ServiceAccountCredentials.from_json_keyfile_name(settings.GOOGLE_CREDS, scope)
     client = gspread.authorize(creds)
     
     sheet_id = sheet_id or settings.SHEET_ID  # default sheet
