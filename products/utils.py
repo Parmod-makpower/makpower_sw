@@ -12,5 +12,5 @@ def get_sheet(sheet_id=None):
     client = gspread.authorize(creds)
     
     sheet_id = sheet_id or settings.SHEET_ID  # default sheet
-    sheet = client.open_by_key(sheet_id).worksheet("main_sheet")
+    sheet = client.open_by_key(sheet_id).worksheet("live_stock_sheet")
     return sheet
