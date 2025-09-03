@@ -5,7 +5,7 @@ from django.db import transaction
 from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder, Product
 from products.models import Product
 from django.contrib.auth import get_user_model
-from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer
+from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer, SSOrderHistorySerializer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from django.shortcuts import get_object_or_404
@@ -99,21 +99,8 @@ class SSOrderHistoryView(APIView):
             "ss_user", "assigned_crm"
         ).prefetch_related("items__product").order_by("-created_at")[:20]
 
-        serializer = SSOrderSerializer(orders, many=True)
+        serializer = SSOrderHistorySerializer(orders, many=True)
         return Response({"results": serializer.data})  # ✅ अब results key आएगी
-
-
-class SSOrderTrackView(RetrieveAPIView):
-    serializer_class = SSOrderSerializer
-    permission_classes = [IsAuthenticated]
-    lookup_field = 'id'
-    lookup_url_kwarg = 'order_id'
-
-    def get_object(self):
-        # Only owner (ss_user) can track their order
-        user = self.request.user
-        order = get_object_or_404(SSOrder, id=self.kwargs['order_id'], ss_user=user)
-        return order
   
  
 class CRMOrderListView(ListAPIView):
@@ -165,6 +152,10 @@ class CRMOrderVerifyView(APIView):
                             quantity=item['quantity'],
                             price=item.get('price', 0)
                         )
+
+                # 🔥 Update original SSOrder status
+                original_order.status = data['status']
+                original_order.save()
 
             return Response({
                 "message": "Order verified successfully",

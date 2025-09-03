@@ -34,6 +34,16 @@ class SSOrderSerializer(serializers.ModelSerializer):
 
     def get_crm_history(self, obj):
         return CRMVerifiedOrderSerializer(obj.crm_verified_versions.all(), many=True).data
+    
+class SSOrderHistorySerializer(serializers.ModelSerializer):
+    items = SSOrderItemSerializer(many=True, read_only=True)
+    class Meta:
+        model = SSOrder
+        fields = [
+            'id', 'order_id',
+             'created_at','status',
+            'items','total_amount'
+        ]
 
 # orders/serializers.py
 

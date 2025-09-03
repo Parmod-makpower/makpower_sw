@@ -18,7 +18,8 @@ class SSOrder(models.Model):
             self.order_id = "ORD-" + uuid.uuid4().hex[:8].upper()
         super().save(*args, **kwargs)
     
-  
+    def __str__(self):
+        return f"{self.order_id} - {self.total_amount}"
 
 class SSOrderItem(models.Model):
     order = models.ForeignKey(SSOrder, on_delete=models.CASCADE, related_name='items',db_index=True)
@@ -56,3 +57,11 @@ class CRMVerifiedOrderItem(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, db_index=True)
     quantity = models.PositiveIntegerField()
     price = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+
+
+class DispatchOrder(models.Model):
+    product = models.CharField(max_length=30)  
+    quantity = models.PositiveIntegerField()
+    order_id = models.CharField(max_length=20, db_index=True)  
+
+    
