@@ -1,8 +1,7 @@
 
 from django.urls import path
-from .views import SSOrderCreateView, SSOrderHistoryView, CRMOrderListView, CRMOrderVerifyView,CRMVerifiedOrderHistoryView, CRMVerifiedOrderCompareView
+from .views import SSOrderCreateView, SSOrderHistoryView, CRMOrderListView, CRMOrderVerifyView,CRMVerifiedOrderHistoryView, CRMVerifiedOrderCompareView, get_orders_by_order_id
 
-# CRMVerifiedOrdersList, CRMVerifiedOrderUpdate, CRMVerifiedOrderDetail
 
 urlpatterns = [
     path("ss-orders/create/", SSOrderCreateView.as_view(), name="ss-order-create"),
@@ -11,5 +10,6 @@ urlpatterns = [
     path("crm/orders/<int:order_id>/verify/", CRMOrderVerifyView.as_view(), name="crm-order-verify"),
     path("crm/verified/", CRMVerifiedOrderHistoryView.as_view(), name="crm-verified-list"),
     path("crm/verified/<int:crm_order_id>/compare/", CRMVerifiedOrderCompareView.as_view(), name="crm-verified-compare"),
+    path("dispatch-orders/<str:order_id>/", get_orders_by_order_id, name="get_orders_by_order_id"),
 
 ]

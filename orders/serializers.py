@@ -1,6 +1,6 @@
 # 📁 orders/serializers.py
 from rest_framework import serializers
-from .models import SSOrder, SSOrderItem, CRMVerifiedOrder, CRMVerifiedOrderItem
+from .models import SSOrder, SSOrderItem, CRMVerifiedOrder, CRMVerifiedOrderItem, DispatchOrder
 
 
 # ==========================
@@ -145,3 +145,8 @@ class CRMCompareResponseSerializer(serializers.Serializer):
     crm = CRMVerifiedOrderSerializer()
     compare_items = CompareItemSerializer(many=True)
     totals = serializers.DictField(child=serializers.DecimalField(max_digits=12, decimal_places=2))
+
+class DispatchOrderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DispatchOrder
+        fields = "__all__"

@@ -1,11 +1,12 @@
 from rest_framework.views import APIView
+from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from django.db import transaction
-from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder, Product
+from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder, Product,DispatchOrder
 from products.models import Product
 from django.contrib.auth import get_user_model
-from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer, SSOrderHistorySerializer
+from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer, SSOrderHistorySerializer,DispatchOrderSerializer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from django.shortcuts import get_object_or_404
@@ -17,7 +18,6 @@ from .utils import send_whatsapp_template
 
 User = get_user_model()
 
-
 class SSOrderCreateView(APIView):
     def post(self, request):
         data = request.data
@@ -27,56 +27,78 @@ class SSOrderCreateView(APIView):
             crm_user = User.objects.get(id=data['crm_id'])
             total = data['total']
             items = data['items']
-            scheme_items = data.get('eligibleSchemes', [])
+            scheme_items = data.get('eligibleSchemes', [])  # अब flat array
 
+            # 🔹 नया Order बनाओ
             order = SSOrder.objects.create(
                 ss_user=ss_user,
                 assigned_crm=crm_user,
                 total_amount=total,
             )
 
-            # Add selected products
+            # 🔹 Normal products add करो
             for item in items:
-                product = Product.objects.get(product_id=item['id'])  
+                product = Product.objects.get(product_id=item['id'])
                 SSOrderItem.objects.create(
                     order=order,
                     product=product,
                     quantity=item['quantity'],
-                    price=item['price'] or 0,  
+                    price=item['price'] or 0,
                     is_scheme_item=False,
                 )
 
-            # Add scheme reward items
-            for scheme in scheme_items:
-                for reward in scheme.get('rewards', []):
-                    product_id = reward.get('product') or reward.get('product_id')
-                    product = Product.objects.get(product_id=product_id) 
+            # 🔹 Scheme reward items add करो
+            print("✅ Scheme Items Received:", scheme_items)  # debug log
+
+            for reward in scheme_items:
+                product_id = None
+
+                # अगर product key integer है
+                if isinstance(reward.get('product'), int):
+                    product_id = reward['product']
+
+                # अगर product key object है { id, name }
+                elif isinstance(reward.get('product'), dict):
+                    product_id = reward['product'].get('id')
+
+                # fallback
+                elif reward.get('product_id'):
+                    product_id = reward['product_id']
+
+                if not product_id:
+                    print(f"⚠️ Skipped reward (no product_id): {reward}")
+                    continue  # safety check
+
+                try:
+                    product = Product.objects.get(product_id=product_id)
                     SSOrderItem.objects.create(
                         order=order,
                         product=product,
-                        quantity=reward['quantity'],
+                        quantity=reward.get('quantity', 0),
                         price=0,
                         is_scheme_item=True,
                     )
+                except Product.DoesNotExist:
+                    print(f"❌ Product not found for reward: {reward}")
+                    continue
 
-            # ✅ CRM नंबर mapping
+            # 🔹 CRM नंबर mapping
             crm_numbers = {
                 2: "7428828836",
                 4: "8930613366",
             }
             crm_number = crm_numbers.get(crm_user.id)
 
-            # ✅ WhatsApp Message भेजो
+            # 🔹 WhatsApp Message भेजो
             if crm_number:
-                template_name = "order_updation"  # Meta console में जो template बनाया है उसका नाम
-                template_language = "EN"  # template language
+                template_name = "order_updation"  # Meta console template का नाम
+                template_language = "EN"
                 parameters = [
-                        ss_user.party_name or ss_user.name,  # {{1}}
-                        str(order.order_id),                 # {{2}}
-                        str(order.total_amount)              # {{3}}
-                    ]
+                    ss_user.party_name or ss_user.name,  # {{1}}
+                    str(order.order_id),                 # {{2}}
+                    str(order.total_amount)              # {{3}}
+                ]
                 send_whatsapp_template(crm_number, template_name, template_language, parameters)
-
 
             return Response({
                 "message": "Order placed successfully.",
@@ -308,4 +330,24 @@ class CRMVerifiedOrderCompareView(APIView):
                 "amount_diff": crm_total - ss_total,
             },
         })
+
+
+@api_view(["GET"])
+def get_orders_by_order_id(request, order_id):
+    try:
+        orders = DispatchOrder.objects.filter(order_id=order_id)
+        
+        if not orders.exists():
+            return Response(
+                {"message": "No orders found for this order_id"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = DispatchOrderSerializer(orders, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response(
+            {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 

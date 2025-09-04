@@ -43,3 +43,4 @@ def sheet_to_db():
 
     except Exception as e:
         print(f"❌ Sync failed due to error: {e}")
+

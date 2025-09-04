@@ -1,9 +1,8 @@
-# api/scheduler.py
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from .sync import  sheet_to_db
+from .sync import  sync_dispatch_orders
 
 def start():
     scheduler = BackgroundScheduler()
-    scheduler.add_job(sheet_to_db, 'interval', minutes=18)
+    scheduler.add_job(sync_dispatch_orders, 'interval', minutes=55)
     scheduler.start()
