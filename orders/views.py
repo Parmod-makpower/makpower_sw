@@ -8,15 +8,14 @@ from products.models import Product
 from django.contrib.auth import get_user_model
 from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer, SSOrderHistorySerializer,DispatchOrderSerializer
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.generics import ListAPIView, RetrieveAPIView
+from rest_framework.generics import ListAPIView
 from django.shortcuts import get_object_or_404
-from django.db.models import Q
-from decimal import Decimal
+from django.db.models import Prefetch,Q
 from .pagination import StandardResultsSetPagination
 from .utils import send_whatsapp_template
 
-
 User = get_user_model()
+
 
 class SSOrderCreateView(APIView):
     def post(self, request):
@@ -124,7 +123,7 @@ class SSOrderHistoryView(APIView):
         serializer = SSOrderHistorySerializer(orders, many=True)
         return Response({"results": serializer.data})  # ✅ अब results key आएगी
   
- 
+
 class CRMOrderListView(ListAPIView):
     serializer_class = SS_to_CRM_Orders
     permission_classes = [IsAuthenticated]
@@ -133,12 +132,11 @@ class CRMOrderListView(ListAPIView):
         user = self.request.user
         return (
             SSOrder.objects.filter(assigned_crm=user)
-            .exclude(crm_verified_versions__isnull=False)   # already verified हटाना
-            .select_related("ss_user", "assigned_crm")      # foreign keys optimize
-            .prefetch_related("items__product")             # items + product optimize
+            .exclude(crm_verified_versions__isnull=False)
+            .select_related("ss_user", "assigned_crm")
+            .prefetch_related("items__product")
             .order_by("-created_at")
         )
-
 
 class CRMOrderVerifyView(APIView):
     permission_classes = [IsAuthenticated]
@@ -148,46 +146,102 @@ class CRMOrderVerifyView(APIView):
             crm_user = request.user
             data = request.data
 
-            # make sure the order exists and is assigned to this CRM
-            original_order = get_object_or_404(SSOrder, id=order_id, assigned_crm=crm_user)
+            # CRM assigned SS order fetch
+            original_order = get_object_or_404(
+                SSOrder, id=order_id, assigned_crm=crm_user
+            )
 
-            # prevent double verification (simple guard)
+            # Prevent duplicate verification
             if CRMVerifiedOrder.objects.filter(original_order=original_order).exists():
-                return Response({"error": "Order already verified"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {"error": "Order already verified"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             with transaction.atomic():
+                # Create CRM verification record
                 crm_order = CRMVerifiedOrder.objects.create(
                     original_order=original_order,
                     crm_user=crm_user,
-                    status=data['status'],
-                    notes=data.get('notes', ''),
-                    total_amount=data.get('total_amount', 0)
+                    status=data["status"],
+                    notes=data.get("notes", ""),
+                    total_amount=data.get("total_amount", 0),
                 )
 
-                # IMPORTANT: only save item lines if NOT rejected
-                if data['status'] != 'REJECTED':
-                    for item in data.get('items', []):
-                        product = Product.objects.get(product_id=item['product'])
+                # Map of original SS items (for rejection detection)
+                ss_items = SSOrderItem.objects.filter(order=original_order).select_related(
+                    "product"
+                )
+                ss_map = {
+                    i.product.product_id: {
+                        "product_obj": i.product,
+                        "quantity": i.quantity,
+                        "price": i.price,
+                    }
+                    for i in ss_items
+                }
+
+                # 🚩 Case 1: Entire order rejected
+                if data["status"] == "REJECTED":
+                    for pid, info in ss_map.items():
+                        CRMVerifiedOrderItem.objects.create(
+                            crm_order=crm_order,
+                            product=info["product_obj"],
+                            quantity=info["quantity"],
+                            price=info["price"],
+                            is_rejected=True,
+                        )
+
+                else:
+                    # 🚩 Case 2: Partial approval or full approval
+                    payload_items = data.get("items", [])
+                    kept_products = set()
+
+                    # Save approved/edited items
+                    for item in payload_items:
+                        product = Product.objects.get(product_id=item["product"])
+                        kept_products.add(product.product_id)
+
                         CRMVerifiedOrderItem.objects.create(
                             crm_order=crm_order,
                             product=product,
-                            quantity=item['quantity'],
-                            price=item.get('price', 0)
+                            quantity=item["quantity"],
+                            price=item.get("price", 0),
+                            is_rejected=False,  # ✅ approved
                         )
 
-                # 🔥 Update original SSOrder status
-                original_order.status = data['status']
+                    # Detect and save rejected items
+                    deleted_products = set(ss_map.keys()) - kept_products
+                    for pid in deleted_products:
+                        info = ss_map[pid]
+                        CRMVerifiedOrderItem.objects.create(
+                            crm_order=crm_order,
+                            product=info["product_obj"],
+                            quantity=info["quantity"],
+                            price=info["price"],
+                            is_rejected=True,  # ✅ rejected
+                        )
+
+                # Update SS order status
+                original_order.status = data["status"]
                 original_order.save()
 
-            return Response({
-                "message": "Order verified successfully",
-                "crm_order": CRMVerifiedOrderSerializer(crm_order).data
-            }, status=status.HTTP_201_CREATED)
+            return Response(
+                {
+                    "message": "Order verified successfully",
+                    "crm_order": CRMVerifiedOrderSerializer(crm_order).data,
+                },
+                status=status.HTTP_201_CREATED,
+            )
 
         except Product.DoesNotExist:
-            return Response({"error": "Product not found"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Product not found"}, status=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
-            import traceback; traceback.print_exc()
+            import traceback
+
+            traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -196,14 +250,13 @@ class CRMVerifiedOrderHistoryView(ListAPIView):
     serializer_class = CRMVerifiedOrderListSerializer
     pagination_class = StandardResultsSetPagination
 
-
     def get_queryset(self):
         user = self.request.user
         qs = CRMVerifiedOrder.objects.all()
+
         # Admin can see all; CRM sees only their own
         if not (getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False)):
-           qs = qs.filter(crm_user=user)
-
+            qs = qs.filter(crm_user=user)
 
         # Filters
         status_param = self.request.query_params.get('status')
@@ -211,127 +264,33 @@ class CRMVerifiedOrderHistoryView(ListAPIView):
         start_date = self.request.query_params.get('start_date') # YYYY-MM-DD
         end_date = self.request.query_params.get('end_date')
 
-
         if status_param:
-         qs = qs.filter(status=status_param)
+            qs = qs.filter(status=status_param)
         if start_date:
-         qs = qs.filter(verified_at__date__gte=start_date)
+            qs = qs.filter(verified_at__date__gte=start_date)
         if end_date:
-         qs = qs.filter(verified_at__date__lte=end_date)
+            qs = qs.filter(verified_at__date__lte=end_date)
         if q:
-         qs = qs.filter(
-            Q(original_order__order_id__icontains=q) |
-            Q(original_order__ss_user__party_name__icontains=q) |
-            Q(original_order__ss_user__name__icontains=q)
-        )
+            qs = qs.filter(
+                Q(original_order__order_id__icontains=q) |
+                Q(original_order__ss_user__party_name__icontains=q) |
+                Q(original_order__ss_user__name__icontains=q)
+            )
 
+        # Optimize: prefetch only non-rejected items for each CRMVerifiedOrder (useful if front-end ever expands)
+        non_rejected_prefetch = Prefetch(
+            'items',
+            queryset=CRMVerifiedOrderItem.objects.filter(is_rejected=False).select_related('product'),
+            to_attr='approved_items_prefetched'  # optional, not used by list serializer but harmless
+        )
 
         return (
             qs.select_related('original_order', 'crm_user', 'original_order__ss_user')
-            .prefetch_related('items__product')
-            .order_by('-verified_at')
-            )
-
-    
-class CRMVerifiedOrderCompareView(APIView):
-    def get(self, request, crm_order_id):
-        crm_order = get_object_or_404(
-            CRMVerifiedOrder.objects.select_related('original_order', 'crm_user', 'original_order__ss_user')
-            .prefetch_related('items__product', 'original_order__items__product'),
-            id=crm_order_id,
+              .prefetch_related(non_rejected_prefetch)
+              .order_by('-verified_at')
         )
 
-        ss_order = crm_order.original_order  # ✅ सही field use किया
-
-        ss_items = {i.product_id: i for i in ss_order.items.all()} if ss_order else {}
-        crm_items = {i.product_id: i for i in crm_order.items.all()}
-
-        product_ids = set(ss_items.keys()) | set(crm_items.keys())
-
-        compare_rows = []
-        for pid in product_ids:
-            ss_it = ss_items.get(pid)
-            crm_it = crm_items.get(pid)
-
-            # ✅ Product Name Safe
-            if ss_it and ss_it.product:
-                product_name = ss_it.product.product_name
-            elif crm_it and crm_it.product:
-                product_name = crm_it.product.product_name
-            else:
-                product_name = "Unknown Product"
-
-            ss_qty = ss_it.quantity if ss_it else 0
-            crm_qty = crm_it.quantity if crm_it else 0
-            ss_price = Decimal(ss_it.price) if ss_it else Decimal("0")
-            crm_price = Decimal(crm_it.price) if crm_it else Decimal("0")
-
-            compare_rows.append({
-                "product": pid,
-                "product_name": product_name,
-                "ss_qty": ss_qty,
-                "crm_qty": crm_qty,
-                "qty_diff": int(crm_qty) - int(ss_qty),
-                "ss_price": ss_price,
-                "crm_price": crm_price,
-                "price_diff": crm_price - ss_price,
-                "ss_is_scheme_item": bool(getattr(ss_it, "is_scheme_item", False)),
-            })
-
-        ss_total = Decimal(ss_order.total_amount or 0) if ss_order else Decimal("0")
-        crm_total = Decimal(crm_order.total_amount or 0)
-
-        return Response({
-            "order_id": ss_order.order_id if ss_order else None,
-            "ss": {
-                "id": ss_order.id if ss_order else None,
-                "order_id": ss_order.order_id if ss_order else None,
-                "ss_party_name": ss_order.ss_user.party_name if ss_order and ss_order.ss_user else None,
-                "ss_user_name": ss_order.ss_user.name if ss_order and ss_order.ss_user else None,
-                "created_at": ss_order.created_at if ss_order else None,
-                "total_amount": ss_order.total_amount if ss_order else 0,
-                "items": [
-                    {
-                        "product": i.product_id,
-                        "product_name": i.product.product_name if i.product else "",
-                        "quantity": i.quantity,
-                        "price": i.price,
-                    }
-                    for i in ss_order.items.all()
-                ] if ss_order else [],
-            },
-            "crm": {
-                "id": crm_order.id,
-                # ✅ username → name or mobile or party_name
-                "crm_name": (
-                    crm_order.crm_user.name
-                    or crm_order.crm_user.party_name
-                    or crm_order.crm_user.mobile
-                    if crm_order.crm_user else None
-                ),
-                "verified_at": crm_order.verified_at,
-                "status": crm_order.status,
-                "notes": crm_order.notes,
-                "total_amount": crm_order.total_amount,
-                "items": [
-                    {
-                        "product": i.product_id,
-                        "product_name": i.product.product_name if i.product else "",
-                        "quantity": i.quantity,
-                        "price": i.price,
-                    }
-                    for i in crm_order.items.all()
-                ],
-            },
-            "compare_items": compare_rows,
-            "totals": {
-                "ss_total": ss_total,
-                "crm_total": crm_total,
-                "amount_diff": crm_total - ss_total,
-            },
-        })
-
-
+    
 @api_view(["GET"])
 def get_orders_by_order_id(request, order_id):
     try:

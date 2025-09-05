@@ -57,6 +57,7 @@ class CRMVerifiedOrderItem(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, db_index=True)
     quantity = models.PositiveIntegerField()
     price = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    is_rejected = models.BooleanField(default=False, db_index=True)
 
 
 class DispatchOrder(models.Model):
