@@ -15,7 +15,6 @@ from .models import  Product, SaleName, Scheme
 from .serializers import (  ProductSerializer, SaleNameSerializer,SchemeSerializer, ProductWithSaleNameSerializer)
 
 
-
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all().order_by('product_id')
     serializer_class = ProductSerializer
@@ -25,17 +24,21 @@ class ProductViewSet(viewsets.ModelViewSet):
     def upload_image(self, request, product_id=None):
         product = self.get_object()
         image_file = request.FILES.get('image')
-        
-        print("Image File:", image_file)
-        
+        if not image_file:
+            return Response({"error": "No image provided"}, status=400)
         product.image = image_file
         product.save()
-        
-        print("Image uploaded to Cloudinary:")
-        print("Image URL:", product.image.url)
-        
         return Response({'status': 'image uploaded', 'url': product.image.url})
 
+    @action(detail=True, methods=['post'], parser_classes=[MultiPartParser])
+    def upload_image2(self, request, product_id=None):
+        product = self.get_object()
+        image_file = request.FILES.get('image2')
+        if not image_file:
+            return Response({"error": "No image2 provided"}, status=400)
+        product.image2 = image_file
+        product.save()
+        return Response({'status': 'image2 uploaded', 'url': product.image2.url})
 
 
 class ProductBulkTemplateDownload(APIView):

@@ -26,6 +26,7 @@ class ProductWithSaleNameSerializer(serializers.ModelSerializer):
             'live_stock',
             'sale_names',  # ✅ केवल sale_names शामिल है
             'image',  # ✅ केवल sale_names शामिल है
+            'image2',  # ✅ केवल sale_names शामिल है
             'is_active',
         ]
 
