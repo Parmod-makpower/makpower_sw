@@ -41,7 +41,7 @@ class SSOrderHistorySerializer(serializers.ModelSerializer):
         model = SSOrder
         fields = [
             'id', 'order_id',
-             'created_at','status',
+             'created_at','status','notes',
             'items','total_amount'
         ]
 
@@ -173,7 +173,7 @@ class CRMVerifiedOrderListSerializer(serializers.ModelSerializer):
         model = CRMVerifiedOrder
         fields = [
             'id', 'order_id', 'ss_party_name', 'ss_user_name', 'crm_name',
-            'verified_at', 'status', 'total_amount', 'items'
+            'verified_at', 'status','notes', 'total_amount', 'items'
         ]
 
     def get_items(self, obj):

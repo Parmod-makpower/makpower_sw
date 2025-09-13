@@ -2,6 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework import status as drf_status
 from django.db import transaction
 from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder, Product,DispatchOrder
 from products.models import Product
@@ -289,6 +290,33 @@ class CRMVerifiedOrderHistoryView(ListAPIView):
               .prefetch_related(non_rejected_prefetch)
               .order_by('-verified_at')
         )
+
+
+class UpdateOrderStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        crm_order = get_object_or_404(CRMVerifiedOrder, pk=pk)
+        new_status = request.data.get("status")
+        notes = request.data.get("notes")
+
+        if new_status not in ["HOLD", "APPROVED", "REJECTED"]:
+            return Response({"detail": "Invalid status"}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        crm_order.status = new_status
+        crm_order.notes = notes if new_status in ["HOLD", "REJECTED"] else None
+        crm_order.save(update_fields=["status", "notes"])
+
+        ss_order = crm_order.original_order
+        ss_order.status = new_status
+        ss_order.notes = notes if new_status in ["HOLD", "REJECTED"] else None
+        ss_order.save(update_fields=["status", "notes"])
+
+        return Response({
+            "detail": "Status updated successfully",
+            "status": new_status,
+            "notes": crm_order.notes
+        })
 
     
 @api_view(["GET"])

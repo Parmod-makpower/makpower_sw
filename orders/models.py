@@ -10,6 +10,7 @@ class SSOrder(models.Model):
     order_id = models.CharField(max_length=20, unique=True, editable=False , null=True, blank=True)  # 🔑 unique order id
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    notes = models.TextField(blank=True, null=True)
     status = models.CharField(max_length=20, default='PENDING')
 
     def save(self, *args, **kwargs):
@@ -36,7 +37,7 @@ class CRMVerifiedOrder(models.Model):
     verified_at = models.DateTimeField(auto_now_add=True, db_index=True)
     status = models.CharField(
         max_length=20,
-        choices=[('APPROVED', 'Approved'), ('REJECTED', 'Rejected'), ('DISPATCH', 'Dispatch'), ('DELIVERED', 'Delivered')],
+        choices=[('APPROVED', 'Approved'), ('REJECTED', 'Rejected'), ('HOLD', 'Hold')],
         db_index=True,
         )
     notes = models.TextField(blank=True, null=True)
