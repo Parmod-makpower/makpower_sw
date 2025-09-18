@@ -42,6 +42,7 @@ class CRMVerifiedOrder(models.Model):
         )
     notes = models.TextField(blank=True, null=True)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    # punched = models.BooleanField(default=False)
 
 
     class Meta:
