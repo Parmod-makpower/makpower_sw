@@ -189,3 +189,37 @@ def get_inactive_products(request):
     products = Product.objects.filter(is_active=False).prefetch_related('sale_names').order_by('product_id')
     serializer = ProductWithSaleNameSerializer(products, many=True)
     return Response(serializer.data)
+
+
+
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import Product
+
+@api_view(['POST'])
+def update_live_stock(request):
+    """
+    Expects payload:
+    [
+        {"product_id": 1, "live_stock": 50},
+        {"product_id": 2, "live_stock": 100},
+    ]
+    """
+    data = request.data
+    updated_products = []
+
+    for item in data:
+        product_id = item.get("product_id")
+        live_stock = item.get("live_stock")
+        if product_id is not None and live_stock is not None:
+            try:
+                product = Product.objects.get(product_id=product_id)
+                product.live_stock = live_stock
+                product.save()
+                updated_products.append(product_id)
+            except Product.DoesNotExist:
+                continue
+
+    return Response({"updated_products": updated_products})

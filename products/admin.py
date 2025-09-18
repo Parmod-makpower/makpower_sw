@@ -1,7 +1,12 @@
 from django.contrib import admin
 from .models import  Product, SaleName, Scheme, SchemeCondition, SchemeReward
 
-admin.site.register(Product)
+
+
+@admin.register(Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = ('product_id', 'product_name', 'live_stock', 'virtual_stock', 'is_active')
+
 admin.site.register(SaleName)
 admin.site.register(Scheme)
 admin.site.register(SchemeCondition)
