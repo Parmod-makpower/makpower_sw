@@ -192,8 +192,6 @@ def get_inactive_products(request):
 
 
 
-
-
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from .models import Product
@@ -202,6 +200,7 @@ from django.db import transaction
 @api_view(['POST'])
 def update_live_stock(request):
     """
+    Bulk update live_stock.
     Expects payload:
     [
         {"product_id": 1, "live_stock": 50},
@@ -209,7 +208,8 @@ def update_live_stock(request):
     ]
     """
     data = request.data
-    updated_products = []
+    products_to_update = []
+    updated_ids = []
 
     with transaction.atomic():
         for item in data:
@@ -217,15 +217,18 @@ def update_live_stock(request):
                 product_id = int(item.get("product_id"))
                 live_stock = int(item.get("live_stock"))
             except (TypeError, ValueError):
-                continue  # skip invalid values
+                continue
 
             try:
                 product = Product.objects.get(product_id=product_id)
                 if product.live_stock != live_stock:
                     product.live_stock = live_stock
-                    product.save()
-                    updated_products.append(product_id)
+                    products_to_update.append(product)
+                    updated_ids.append(product_id)
             except Product.DoesNotExist:
                 continue
 
-    return Response({"updated_products": updated_products})
+        if products_to_update:
+            Product.objects.bulk_update(products_to_update, ["live_stock"])
+
+    return Response({"updated_products": updated_ids})
