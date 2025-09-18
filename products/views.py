@@ -197,6 +197,7 @@ def get_inactive_products(request):
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from .models import Product
+from django.db import transaction
 
 @api_view(['POST'])
 def update_live_stock(request):
@@ -210,15 +211,20 @@ def update_live_stock(request):
     data = request.data
     updated_products = []
 
-    for item in data:
-        product_id = item.get("product_id")
-        live_stock = item.get("live_stock")
-        if product_id is not None and live_stock is not None:
+    with transaction.atomic():
+        for item in data:
+            try:
+                product_id = int(item.get("product_id"))
+                live_stock = int(item.get("live_stock"))
+            except (TypeError, ValueError):
+                continue  # skip invalid values
+
             try:
                 product = Product.objects.get(product_id=product_id)
-                product.live_stock = live_stock
-                product.save()
-                updated_products.append(product_id)
+                if product.live_stock != live_stock:
+                    product.live_stock = live_stock
+                    product.save()
+                    updated_products.append(product_id)
             except Product.DoesNotExist:
                 continue
 
