@@ -8,7 +8,9 @@ class Product(models.Model):
     sub_category = models.CharField(max_length=50, null=True, blank=True)
     cartoon_size = models.CharField(max_length=50, null=True, blank=True)
     price = models.CharField(max_length=10, null=True, blank=True)
+    moq = models.IntegerField(null=True, blank=True, default=50,)
     live_stock = models.IntegerField(null=True, blank=True)
+    virtual_stock = models.IntegerField(null=True, blank=True, default=0)  # ✅ New Field
     image = CloudinaryField('image', blank=True, null=True)
     image2 = CloudinaryField('image2', blank=True, null=True)
     is_active = models.BooleanField(default=True)
@@ -16,15 +18,6 @@ class Product(models.Model):
     def __str__(self):
         return f"{self.product_id} - {self.product_name}"
 
-    @property
-    def virtual_stock(self):
-        from orders.models import PendingOrderItemSnapshot
-        pending_qty = PendingOrderItemSnapshot.objects.filter(product=self).aggregate(
-            total=models.Sum('quantity')
-        )['total'] or 0
-        if self.live_stock is None:
-            return 0
-        return self.live_stock - pending_qty
 
 
 # ✅ 3. SaleName Model (1 product → many sale names)

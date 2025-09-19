@@ -5,7 +5,7 @@ from .models import  Product, SaleName, Scheme, SchemeCondition, SchemeReward
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ('product_id', 'product_name', 'live_stock', 'virtual_stock', 'is_active')
+    list_display = ('product_id', 'product_name', 'cartoon_size', 'moq', 'live_stock', 'virtual_stock')
 
 admin.site.register(SaleName)
 admin.site.register(Scheme)

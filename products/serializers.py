@@ -23,10 +23,11 @@ class ProductWithSaleNameSerializer(serializers.ModelSerializer):
             'sub_category',
             'cartoon_size',
             'price',
+            'moq',
             'live_stock',
-            'sale_names',  # ✅ केवल sale_names शामिल है
-            'image',  # ✅ केवल sale_names शामिल है
-            'image2',  # ✅ केवल sale_names शामिल है
+            'sale_names',  
+            'image',  
+            'image2',  
             'is_active',
         ]
 

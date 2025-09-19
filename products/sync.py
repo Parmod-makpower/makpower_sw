@@ -1,7 +1,8 @@
+# products/sync.py
 from django.conf import settings
 from django.db import transaction
 from .models import Product
-from .utils import get_sheet
+from .utils import get_sheet, recalculate_virtual_stock
 
 def sheet_to_db():
     try:
@@ -12,7 +13,6 @@ def sheet_to_db():
             print("⚠️ Sheet is empty — no data to sync.")
             return
 
-        products_to_update = []
         updated = 0
 
         with transaction.atomic():
@@ -25,22 +25,21 @@ def sheet_to_db():
                     product = Product.objects.get(product_id=product_id)
                     live_stock_from_sheet = row.get("live_stock")
 
-                    # Only update if value is different
+                    # ✅ Update only if live_stock changed
                     if product.live_stock != live_stock_from_sheet:
                         product.live_stock = live_stock_from_sheet
-                        products_to_update.append(product)
+                        product.save(update_fields=["live_stock"])
+
+                        # ✅ Recalculate virtual_stock immediately
+                        recalculate_virtual_stock(product)
+
                         updated += 1
 
                 except Product.DoesNotExist:
                     # Skip if product not found
                     continue
 
-            # ✅ Bulk update at once
-            if products_to_update:
-                Product.objects.bulk_update(products_to_update, ["live_stock"])
-
-        print(f"✅ Synced: {updated} products updated.")
+        print(f"✅ Synced: {updated} products updated & virtual stock recalculated.")
 
     except Exception as e:
         print(f"❌ Sync failed due to error: {e}")
-
