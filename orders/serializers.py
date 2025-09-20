@@ -165,6 +165,7 @@ class CRMVerifiedOrderListSerializer(serializers.ModelSerializer):
     ss_party_name = serializers.CharField(source='original_order.ss_user.party_name', read_only=True)
     ss_user_name = serializers.CharField(source='original_order.ss_user.name', read_only=True)
     crm_name = serializers.CharField(source='crm_user.name', read_only=True)
+    punched = serializers.BooleanField(read_only=True)
 
     # ✅ Approved items जोड़ दिए
     items = serializers.SerializerMethodField()
@@ -173,7 +174,7 @@ class CRMVerifiedOrderListSerializer(serializers.ModelSerializer):
         model = CRMVerifiedOrder
         fields = [
             'id', 'order_id', 'ss_party_name', 'ss_user_name', 'crm_name',
-            'verified_at', 'status','notes', 'total_amount', 'items'
+            'verified_at', 'status','notes', 'total_amount', 'items','punched'
         ]
 
     def get_items(self, obj):

@@ -16,6 +16,21 @@ def get_sheet(sheet_id=None, sheet_name="live_stock_sheet"):
     return sheet
 
 
+# ✅ नया function for writing
+def write_to_sheet(sheet_id, sheet_name, rows: list):
+    """
+    rows: List of lists, हर row के लिए एक list
+    Example:
+    [
+        ["Product1", 10, "Party A", 123, "CRM1", 1, "2025-09-20 10:00:00"],
+        ["Product2", 5, "Party A", 123, "CRM1", 2, "2025-09-20 10:00:00"]
+    ]
+    """
+    sheet = get_sheet(sheet_id, sheet_name)
+    # rows को append करना
+    for row in rows:
+        sheet.append_row(row)
+
 # products/utils.py
 from orders.models import PendingOrderItemSnapshot
 from django.db.models import Sum

@@ -262,8 +262,9 @@ class CRMVerifiedOrderHistoryView(ListAPIView):
         # Filters
         status_param = self.request.query_params.get('status')
         q = self.request.query_params.get('q')
-        start_date = self.request.query_params.get('start_date') # YYYY-MM-DD
+        start_date = self.request.query_params.get('start_date')
         end_date = self.request.query_params.get('end_date')
+        punched_param = self.request.query_params.get('punched')  # 🔹 new filter
 
         if status_param:
             qs = qs.filter(status=status_param)
@@ -278,11 +279,21 @@ class CRMVerifiedOrderHistoryView(ListAPIView):
                 Q(original_order__ss_user__name__icontains=q)
             )
 
-        # Optimize: prefetch only non-rejected items for each CRMVerifiedOrder (useful if front-end ever expands)
+        # 🔹 Handle punched filter
+        if punched_param is not None:
+            if punched_param.lower() == 'true':
+                qs = qs.filter(punched=True)
+            elif punched_param.lower() == 'false':
+                qs = qs.filter(punched=False)
+        else:
+            # 🔹 Default: only show punched=False orders
+            qs = qs.filter(punched=False)
+
+        # Prefetch approved items
         non_rejected_prefetch = Prefetch(
             'items',
             queryset=CRMVerifiedOrderItem.objects.filter(is_rejected=False).select_related('product'),
-            to_attr='approved_items_prefetched'  # optional, not used by list serializer but harmless
+            to_attr='approved_items_prefetched'
         )
 
         return (
@@ -339,4 +350,60 @@ def get_orders_by_order_id(request, order_id):
         )
 
 
+
+# orders/views.py
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from django.conf import settings
+from products.utils import write_to_sheet
+
+@api_view(['POST'])
+def punch_order_to_sheet(request):
+    """
+    Frontend से JSON में items भेजो, और यह function sheet में write करेगा
+    Expected payload:
+    {
+        "order_id": 123,
+        "ss_party_name": "Party A",
+        "crm_name": "CRM1",
+        "items": [
+            {"product_name": "Product1", "quantity": 10, "id": 1},
+            {"product_name": "Product2", "quantity": 5, "id": 2}
+        ]
+    }
+    """
+    try:
+        data = request.data
+        order_id = data.get("order_id")
+        ss_party_name = data.get("ss_party_name")
+        crm_name = data.get("crm_name")
+        items = data.get("items", [])
+
+        if not items:
+            return Response({"error": "No items provided"}, status=400)
+
+        from datetime import datetime
+        now = datetime.now()
+        ist_timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Prepare rows for Google Sheet
+        rows = [
+            [
+                i.get("product_name", ""),
+                i.get("quantity", 0),
+                ss_party_name,
+                order_id,
+                crm_name,
+                i.get("id"),
+                ist_timestamp
+            ]
+            for i in items
+        ]
+
+        # Write to sheet (sheet name = "abc")
+        write_to_sheet(settings.SHEET_ID_NEW, "abc", rows)
+
+        return Response({"success": True, "message": f"{len(rows)} rows written to sheet"})
+    except Exception as e:
+        return Response({"success": False, "error": str(e)}, status=500)
 

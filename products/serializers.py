@@ -22,6 +22,7 @@ class ProductWithSaleNameSerializer(serializers.ModelSerializer):
             'product_name',
             'sub_category',
             'cartoon_size',
+            'guarantee',
             'price',
             'moq',
             'live_stock',

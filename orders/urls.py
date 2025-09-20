@@ -1,6 +1,6 @@
 
 from django.urls import path
-from .views import SSOrderCreateView, SSOrderHistoryView, CRMOrderListView, CRMOrderVerifyView,CRMVerifiedOrderHistoryView, get_orders_by_order_id, UpdateOrderStatusView
+from .views import SSOrderCreateView, SSOrderHistoryView, CRMOrderListView, CRMOrderVerifyView,CRMVerifiedOrderHistoryView, get_orders_by_order_id, UpdateOrderStatusView, punch_order_to_sheet
 
 
 urlpatterns = [
@@ -11,5 +11,5 @@ urlpatterns = [
     path("crm/verified/", CRMVerifiedOrderHistoryView.as_view(), name="crm-verified-list"),
     path("crm/verified/<int:pk>/status/", UpdateOrderStatusView.as_view(), name="crm-verified-status"),
     path("dispatch-orders/<str:order_id>/", get_orders_by_order_id, name="get_orders_by_order_id"),
-
+    path('punch-to-sheet/', punch_order_to_sheet, name='punch-to-sheet'),
 ]

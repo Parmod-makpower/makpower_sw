@@ -44,7 +44,7 @@ class ProductViewSet(viewsets.ModelViewSet):
 class ProductBulkTemplateDownload(APIView):
     def get(self, request):
         # Template columns
-        columns = ["product_id", "product_name", "sub_category", "cartoon_size", "price", "moq"]
+        columns = ["product_id", "product_name", "sub_category", "cartoon_size", "guarantee", "price", "moq"]
         df = pd.DataFrame(columns=columns)
 
         # Excel response
@@ -65,7 +65,7 @@ class ProductBulkUpload(APIView):
         try:
             df = pd.read_excel(file)
 
-            required_columns = {"product_id", "product_name", "sub_category", "cartoon_size", "price", "moq"}
+            required_columns = {"product_id", "product_name", "sub_category", "cartoon_size", "guarantee", "price", "moq"}
             if not required_columns.issubset(df.columns):
                 return Response({"error": "Invalid file format"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -79,6 +79,7 @@ class ProductBulkUpload(APIView):
                     "product_name": row.get("product_name", ""),
                     "sub_category": row.get("sub_category", ""),
                     "cartoon_size": row.get("cartoon_size", ""),
+                    "guarantee": row.get("guarantee", ""),
                     "price": row.get("price", ""),
                     "moq": row.get("moq", 0)
                 }
