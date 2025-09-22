@@ -350,60 +350,69 @@ def get_orders_by_order_id(request, order_id):
         )
 
 
-
 # orders/views.py
+
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.conf import settings
 from products.utils import write_to_sheet
+from orders.models import CRMVerifiedOrder
+from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 @api_view(['POST'])
 def punch_order_to_sheet(request):
-    """
-    Frontend से JSON में items भेजो, और यह function sheet में write करेगा
-    Expected payload:
-    {
-        "order_id": 123,
-        "ss_party_name": "Party A",
-        "crm_name": "CRM1",
-        "items": [
-            {"product_name": "Product1", "quantity": 10, "id": 1},
-            {"product_name": "Product2", "quantity": 5, "id": 2}
-        ]
-    }
-    """
     try:
         data = request.data
+
+        # Extract required fields
         order_id = data.get("order_id")
         ss_party_name = data.get("ss_party_name")
         crm_name = data.get("crm_name")
+        ss_id = data.get("id")
         items = data.get("items", [])
 
-        if not items:
-            return Response({"error": "No items provided"}, status=400)
+        # Validate input
+        if not order_id or not items:
+            return Response({"error": "Missing order_id or items"}, status=400)
 
-        from datetime import datetime
-        now = datetime.now()
-        ist_timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        # Generate IST timestamp
+        ist_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Prepare rows for Google Sheet
         rows = [
             [
-                i.get("product_name", ""),
-                i.get("quantity", 0),
+                item.get("product_name", ""),
+                item.get("quantity", 0),
                 ss_party_name,
-                order_id,
+                ss_id,
                 crm_name,
-                i.get("id"),
-                ist_timestamp
+                item.get("id", ""),
+                ist_timestamp,
+                order_id,
             ]
-            for i in items
+            for item in items
         ]
 
-        # Write to sheet (sheet name = "abc")
-        write_to_sheet(settings.SHEET_ID_NEW, "abc", rows)
+        # ✅ Write to Google Sheet
+        write_to_sheet(settings.SHEET_ID_NEW, "order_punch", rows)
 
-        return Response({"success": True, "message": f"{len(rows)} rows written to sheet"})
+        # ✅ Mark order as punched in DB
+        updated_count = CRMVerifiedOrder.objects.filter(
+            original_order__order_id=order_id
+        ).update(punched=True)
+
+        if updated_count == 0:
+            logger.warning(f"No CRMVerifiedOrder found for order_id: {order_id}")
+            return Response({"error": "No CRMVerifiedOrder found for this order_id"}, status=404)
+
+        return Response({
+            "success": True,
+            "message": f"{len(rows)} rows written to sheet and order marked as punched"
+        })
+
     except Exception as e:
-        return Response({"success": False, "error": str(e)}, status=500)
-
+        logger.error(f"Error in punch_order_to_sheet: {str(e)}", exc_info=True)
+        return Response({"success": False, "error": "Internal server error"}, status=500)
