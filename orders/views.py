@@ -84,8 +84,11 @@ class SSOrderCreateView(APIView):
 
             # 🔹 CRM नंबर mapping
             crm_numbers = {
-                2: "7428828836",
-                4: "8930613366",
+                2: "7678491163", # prince
+                4: "9312093178", # Ankita
+                7: "8595957195", # Ajit
+                8: "9266877089", # Harish
+                9: "9266767418", # Simran 
             }
             crm_number = crm_numbers.get(crm_user.id)
 
