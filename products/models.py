@@ -9,7 +9,7 @@ class Product(models.Model):
     cartoon_size = models.CharField(max_length=50, null=True, blank=True)
     guarantee = models.CharField(max_length=50, null=True, blank=True)
     price = models.CharField(max_length=10, null=True, blank=True)
-    moq = models.IntegerField(null=True, blank=True, default=50,)
+    moq = models.IntegerField(null=True, blank=True)
     live_stock = models.IntegerField(null=True, blank=True)
     virtual_stock = models.IntegerField(null=True, blank=True, default=0)  # ✅ New Field
     image = CloudinaryField('image', blank=True, null=True)
