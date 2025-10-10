@@ -15,6 +15,14 @@ from django.db.models import Prefetch,Q
 from .pagination import StandardResultsSetPagination
 from .utils import send_whatsapp_template
 
+
+
+from django.db import transaction
+from orders.models import PendingOrderItemSnapshot
+from products.utils import recalculate_virtual_stock
+from products.models import Product
+
+
 User = get_user_model()
 
 
@@ -142,6 +150,7 @@ class CRMOrderListView(ListAPIView):
             .order_by("-created_at")
         )
 
+
 class CRMOrderVerifyView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -150,17 +159,13 @@ class CRMOrderVerifyView(APIView):
             crm_user = request.user
             data = request.data
 
-            # CRM assigned SS order fetch
             original_order = get_object_or_404(
                 SSOrder, id=order_id, assigned_crm=crm_user
             )
 
             # Prevent duplicate verification
             if CRMVerifiedOrder.objects.filter(original_order=original_order).exists():
-                return Response(
-                    {"error": "Order already verified"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+                return Response({"error": "Order already verified"}, status=status.HTTP_400_BAD_REQUEST)
 
             with transaction.atomic():
                 # Create CRM verification record
@@ -172,10 +177,8 @@ class CRMOrderVerifyView(APIView):
                     total_amount=data.get("total_amount", 0),
                 )
 
-                # Map of original SS items (for rejection detection)
-                ss_items = SSOrderItem.objects.filter(order=original_order).select_related(
-                    "product"
-                )
+                # Original SS items map
+                ss_items = SSOrderItem.objects.filter(order=original_order).select_related("product")
                 ss_map = {
                     i.product.product_id: {
                         "product_obj": i.product,
@@ -185,7 +188,7 @@ class CRMOrderVerifyView(APIView):
                     for i in ss_items
                 }
 
-                # 🚩 Case 1: Entire order rejected
+                # If whole order rejected -> record items as rejected, remove snapshots, recalc
                 if data["status"] == "REJECTED":
                     for pid, info in ss_map.items():
                         CRMVerifiedOrderItem.objects.create(
@@ -196,25 +199,37 @@ class CRMOrderVerifyView(APIView):
                             is_rejected=True,
                         )
 
+                    # delete snapshots for this order (no reservation anymore)
+                    pending_snapshots = PendingOrderItemSnapshot.objects.filter(order=original_order)
+                    affected_products = [snap.product for snap in pending_snapshots]
+                    pending_snapshots.delete()
+
+                    for p in set(affected_products):
+                        recalculate_virtual_stock(p)
+
                 else:
-                    # 🚩 Case 2: Partial approval or full approval
+                    # Partial / Full approval case
                     payload_items = data.get("items", [])
                     kept_products = set()
+                    approved_map = {}  # product_id -> approved_qty
+                    affected_products = set()
 
-                    # Save approved/edited items
+                    # create CRMVerifiedOrderItem for approved items
                     for item in payload_items:
                         product = Product.objects.get(product_id=item["product"])
+                        qty = int(item.get("quantity", 0))
                         kept_products.add(product.product_id)
+                        approved_map[product.product_id] = qty
 
                         CRMVerifiedOrderItem.objects.create(
                             crm_order=crm_order,
                             product=product,
-                            quantity=item["quantity"],
+                            quantity=qty,
                             price=item.get("price", 0),
-                            is_rejected=False,  # ✅ approved
+                            is_rejected=False,
                         )
 
-                    # Detect and save rejected items
+                    # products removed by CRM are considered rejected
                     deleted_products = set(ss_map.keys()) - kept_products
                     for pid in deleted_products:
                         info = ss_map[pid]
@@ -223,30 +238,49 @@ class CRMOrderVerifyView(APIView):
                             product=info["product_obj"],
                             quantity=info["quantity"],
                             price=info["price"],
-                            is_rejected=True,  # ✅ rejected
+                            is_rejected=True,
                         )
 
-                # Update SS order status
-                original_order.status = data["status"]
-                original_order.save()
+                    # Now update PendingOrderItemSnapshot to reflect approved quantities
+                    #  - set snapshot.quantity = approved_qty for approved items
+                    #  - delete snapshot for rejected items
+                    for pid, approved_qty in approved_map.items():
+                        prod_obj = ss_map.get(pid, {}).get("product_obj")
+                        if not prod_obj:
+                            # fallback if product was not in ss_map (rare)
+                            prod_obj = Product.objects.get(product_id=pid)
+                        PendingOrderItemSnapshot.objects.update_or_create(
+                            order=original_order,
+                            product=prod_obj,
+                            defaults={"quantity": approved_qty},
+                        )
+                        affected_products.add(prod_obj)
 
-            return Response(
-                {
-                    "message": "Order verified successfully",
-                    "crm_order": CRMVerifiedOrderSerializer(crm_order).data,
-                },
-                status=status.HTTP_201_CREATED,
-            )
+                    for pid in deleted_products:
+                        info = ss_map[pid]
+                        PendingOrderItemSnapshot.objects.filter(order=original_order, product=info["product_obj"]).delete()
+                        affected_products.add(info["product_obj"])
+
+                    # Recalculate virtual stock for all affected products
+                    for p in set(affected_products):
+                        recalculate_virtual_stock(p)
+
+                # Finally update order status
+                original_order.status = data["status"]
+                original_order.save(update_fields=["status"])
+
+            return Response({
+                "message": "Order verified successfully",
+                "crm_order": CRMVerifiedOrderSerializer(crm_order).data,
+            }, status=status.HTTP_201_CREATED)
 
         except Product.DoesNotExist:
-            return Response(
-                {"error": "Product not found"}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "Product not found"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             import traceback
-
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 class CRMVerifiedOrderHistoryView(ListAPIView):
