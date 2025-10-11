@@ -12,7 +12,7 @@ class SSOrderItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SSOrderItem
-        fields = ['id', 'product', 'product_name', 'quantity', 'price', 'is_scheme_item']
+        fields = ['id', 'product', 'product_name', 'quantity', 'price', 'ss_virtual_stock', 'is_scheme_item']
 
 
 class SSOrderSerializer(serializers.ModelSerializer):
@@ -72,7 +72,7 @@ class OnlySSOrderItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SSOrderItem
-        fields = ['id', 'product', 'product_name', 'quantity', 'price', 'is_scheme_item']
+        fields = ['id', 'product', 'product_name', 'quantity','ss_virtual_stock', 'price', 'is_scheme_item']
 
 
 class SS_to_CRM_Orders(serializers.ModelSerializer):
@@ -157,7 +157,7 @@ class CRMVerifiedOrderItemLiteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CRMVerifiedOrderItem
-        fields = ['id', 'product', 'product_name', 'quantity', 'price']  # 👈 is_rejected हटाया
+        fields = ['id', 'product', 'product_name', 'quantity','ss_virtual_stock', 'price']  # 👈 is_rejected हटाया
 
 
 class CRMVerifiedOrderListSerializer(serializers.ModelSerializer):

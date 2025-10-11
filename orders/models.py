@@ -27,7 +27,12 @@ class SSOrderItem(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, db_index=True)
     quantity = models.PositiveIntegerField()
     price = models.DecimalField(max_digits=8, decimal_places=2)
+    ss_virtual_stock = models.PositiveIntegerField(default=0)
     is_scheme_item = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.product} - {self.quantity}"
+
 
 # orders/models.py
 
@@ -59,6 +64,7 @@ class CRMVerifiedOrderItem(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, db_index=True)
     quantity = models.PositiveIntegerField()
     price = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    ss_virtual_stock = models.PositiveIntegerField(default=0)
     is_rejected = models.BooleanField(default=False, db_index=True)
 
 

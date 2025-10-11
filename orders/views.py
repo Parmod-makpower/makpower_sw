@@ -53,6 +53,7 @@ class SSOrderCreateView(APIView):
                     quantity=item['quantity'],
                     price=item['price'] or 0,
                     is_scheme_item=False,
+                    ss_virtual_stock=item.get('ss_virtual_stock', getattr(product, 'stock_quantity', 0))
                 )
 
             # 🔹 Scheme reward items add करो
@@ -92,7 +93,7 @@ class SSOrderCreateView(APIView):
 
             # 🔹 CRM नंबर mapping
             crm_numbers = {
-                2: "7678491163", # prince
+                2: "9306443566", # prince
                 4: "9312093178", # Ankita
                 7: "8595957195", # Ajit
                 8: "9266877089", # Harish
@@ -221,11 +222,14 @@ class CRMOrderVerifyView(APIView):
                         kept_products.add(product.product_id)
                         approved_map[product.product_id] = qty
 
+                        ss_item = SSOrderItem.objects.get(order=original_order, product=product)
+
                         CRMVerifiedOrderItem.objects.create(
                             crm_order=crm_order,
                             product=product,
                             quantity=qty,
                             price=item.get("price", 0),
+                            ss_virtual_stock=ss_item.ss_virtual_stock,  # ✅ add this
                             is_rejected=False,
                         )
 
@@ -238,6 +242,7 @@ class CRMOrderVerifyView(APIView):
                             product=info["product_obj"],
                             quantity=info["quantity"],
                             price=info["price"],
+                            ss_virtual_stock=info.get("ss_virtual_stock", 0),
                             is_rejected=True,
                         )
 
@@ -434,7 +439,7 @@ def punch_order_to_sheet(request):
         ]
 
         # ✅ Write to Google Sheet
-        write_to_sheet(settings.SHEET_ID_NEW, "order_punch", rows)
+        write_to_sheet(settings.SHEET_ID_NEW, "asd", rows)
 
         # ✅ Mark order as punched in DB
         updated_count = CRMVerifiedOrder.objects.filter(
