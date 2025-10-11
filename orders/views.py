@@ -93,7 +93,7 @@ class SSOrderCreateView(APIView):
 
             # 🔹 CRM नंबर mapping
             crm_numbers = {
-                2: "9306443566", # prince
+                2: "7678491163", # prince
                 4: "9312093178", # Ankita
                 7: "8595957195", # Ajit
                 8: "9266877089", # Harish
@@ -439,7 +439,7 @@ def punch_order_to_sheet(request):
         ]
 
         # ✅ Write to Google Sheet
-        write_to_sheet(settings.SHEET_ID_NEW, "asd", rows)
+        write_to_sheet(settings.SHEET_ID_NEW, "order_punch", rows)
 
         # ✅ Mark order as punched in DB
         updated_count = CRMVerifiedOrder.objects.filter(
