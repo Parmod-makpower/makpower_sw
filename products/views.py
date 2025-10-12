@@ -75,13 +75,24 @@ class ProductBulkUpload(APIView):
             for _, row in df.iterrows():
                 product_id = row["product_id"]
 
+                # Clean cartoon_size
+                cartoon_size_raw = row.get("cartoon_size", "")
+                if pd.notnull(cartoon_size_raw):
+                    if isinstance(cartoon_size_raw, float) and cartoon_size_raw.is_integer():
+                        cartoon_size_str = str(int(cartoon_size_raw))  # e.g., 200.0 → "200"
+                    else:
+                        cartoon_size_str = str(cartoon_size_raw)       # e.g., 250.5 or "text"
+                else:
+                    cartoon_size_str = ""
+
+                # Prepare defaults
                 defaults = {
                     "product_name": row.get("product_name", ""),
                     "sub_category": row.get("sub_category", ""),
-                    "cartoon_size": row.get("cartoon_size", ""),
+                    "cartoon_size": cartoon_size_str,
                     "guarantee": row.get("guarantee", ""),
-                    "price": row.get("price", ""),
-                    "moq": row.get("moq", 0)
+                    "price": str(row.get("price", "")) if pd.notnull(row.get("price")) else "",
+                    "moq": int(row.get("moq", 0)) if pd.notnull(row.get("moq")) else 0,
                 }
 
                 obj, created = Product.objects.update_or_create(
