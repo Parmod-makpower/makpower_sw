@@ -8,12 +8,14 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ['id', 'user_id','name', 'mobile', 'role', 'crm', 'ss', 'is_active', 'created_at']
 
 
+
 class CRMUserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = CustomUser
-        fields = ['id', 'user_id', 'mobile', 'password', 'name', 'email', 'is_active', 'created_at']
+        # Removed 'email' and 'dob'
+        fields = ['id', 'user_id', 'mobile', 'password', 'name', 'is_active', 'created_at']
         read_only_fields = ['user_id', 'created_at']
 
     def validate_mobile(self, value):
@@ -21,11 +23,6 @@ class CRMUserSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Mobile number must be exactly 10 digits.")
         if CustomUser.objects.filter(mobile=value).exclude(id=self.instance.id if self.instance else None).exists():
             raise serializers.ValidationError("This mobile number is already in use.")
-        return value
-
-    def validate_email(self, value):
-        if value and CustomUser.objects.filter(email=value).exclude(id=self.instance.id if self.instance else None).exists():
-            raise serializers.ValidationError("This email is already in use.")
         return value
 
     def create(self, validated_data):
