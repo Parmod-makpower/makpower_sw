@@ -144,13 +144,28 @@ class CRMOrderListView(ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
+
+        # ✅ अगर user admin है → सबका pending order दिखाओ
+        if user.is_staff or user.is_superuser:
+            return (
+                SSOrder.objects
+                .filter(status="PENDING")  # सिर्फ़ pending वाले orders
+                .exclude(crm_verified_versions__isnull=False)
+                .select_related("ss_user", "assigned_crm")
+                .prefetch_related("items__product")
+                .order_by("-created_at")
+            )
+
+        # ✅ वरना (CRM user) → सिर्फ़ अपने assigned SS के orders दिखाओ
         return (
-            SSOrder.objects.filter(assigned_crm=user)
+            SSOrder.objects
+            .filter(assigned_crm=user, status="PENDING")
             .exclude(crm_verified_versions__isnull=False)
             .select_related("ss_user", "assigned_crm")
             .prefetch_related("items__product")
             .order_by("-created_at")
         )
+
 
 
 
