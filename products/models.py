@@ -12,6 +12,7 @@ class Product(models.Model):
     moq = models.IntegerField(null=True, blank=True)
     live_stock = models.IntegerField(null=True, blank=True)
     virtual_stock = models.IntegerField(null=True, blank=True, default=0)  # ✅ New Field
+    quantity_type = models.CharField(max_length=50, default="MOQ")
     image = CloudinaryField('image', blank=True, null=True)
     image2 = CloudinaryField('image2', blank=True, null=True)
     is_active = models.BooleanField(default=True)

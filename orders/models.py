@@ -58,6 +58,9 @@ class CRMVerifiedOrder(models.Model):
         ]
         ordering = ["-verified_at"]
 
+    def __str__(self):
+        return f"{self.original_order} - {self.total_amount}"
+
 
 class CRMVerifiedOrderItem(models.Model):
     crm_order = models.ForeignKey(CRMVerifiedOrder, on_delete=models.CASCADE, related_name='items', db_index=True)
