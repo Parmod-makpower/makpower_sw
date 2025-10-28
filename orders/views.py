@@ -255,14 +255,21 @@ class CRMOrderVerifyView(APIView):
                         except (InvalidOperation, TypeError, ValueError):
                             price_value = Decimal(0)
 
+                        # ✅ अगर SSOrderItem नहीं मिला, तो product.virtual_stock का इस्तेमाल करो
+                        if ss_item:
+                            ss_virtual_stock_value = ss_item.ss_virtual_stock
+                        else:
+                            ss_virtual_stock_value = product.virtual_stock or 0
+
                         CRMVerifiedOrderItem.objects.create(
                             crm_order=crm_order,
                             product=product,
                             quantity=qty,
                             price=price_value,
-                            ss_virtual_stock=ss_item.ss_virtual_stock if ss_item else item.get("ss_virtual_stock", 0),
+                            ss_virtual_stock=ss_virtual_stock_value,
                             is_rejected=False,
                         )
+
 
                     # Products removed by CRM are considered rejected
                     deleted_products = set(ss_map.keys()) - kept_products

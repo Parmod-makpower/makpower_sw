@@ -70,6 +70,9 @@ class CRMVerifiedOrderItem(models.Model):
     ss_virtual_stock = models.PositiveIntegerField(default=0)
     is_rejected = models.BooleanField(default=False, db_index=True)
 
+    def __str__(self):
+        return f"{self.product} - {self.quantity}"
+
 
 class DispatchOrder(models.Model):
     row_key = models.CharField(max_length=100, unique=True)
