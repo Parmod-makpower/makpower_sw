@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     'accounts',
     'products',
     'orders',
+    'cargo_details',
     'cloudinary',
     'cloudinary_storage',
 ]

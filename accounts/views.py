@@ -55,6 +55,8 @@ class CRMUserViewSet(viewsets.ModelViewSet):
     serializer_class = CRMUserSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdmin]
 
+
+
 class SSUserViewSet(viewsets.ModelViewSet):
     serializer_class = SSUserSerializer
     permission_classes = [permissions.IsAuthenticated, IsCRM]
