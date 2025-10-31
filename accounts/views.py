@@ -7,6 +7,8 @@ from django.db.models import Q
 from rest_framework.permissions import IsAuthenticated
 from .serializers import CRMUserSerializer, SSUserSerializer, DSUserSerializer, UserSerializer
 from .models import CustomUser
+from accounts.permissions import IsCRMOrAdmin  # 👈 नया permission import करें
+
 
 
 class LoginView(APIView):
@@ -57,7 +59,7 @@ class CRMUserViewSet(viewsets.ModelViewSet):
 
 
 
-class SSUserViewSet(viewsets.ModelViewSet):
+# class SSUserViewSet(viewsets.ModelViewSet):
     serializer_class = SSUserSerializer
     permission_classes = [permissions.IsAuthenticated, IsCRM]
 
@@ -158,3 +160,25 @@ class UserHierarchyView(APIView):
         else:
             return Response({'detail': 'Unauthorized'}, status=403)
 
+
+
+class SSUserViewSet(viewsets.ModelViewSet):
+    serializer_class = SSUserSerializer
+    permission_classes = [permissions.IsAuthenticated, IsCRMOrAdmin]  # 👈 यहाँ बदलाव
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # अगर ADMIN login है → सभी SS users दिखाओ
+        if user.role == "ADMIN":
+            return CustomUser.objects.filter(role='SS')
+
+        # अगर CRM login है → सिर्फ उसी के बनाए SS दिखाओ
+        return CustomUser.objects.filter(role='SS', created_by=user)
+
+    def get_serializer_context(self):
+        return {'request': self.request}
+
+    def update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return super().update(request, *args, **kwargs)

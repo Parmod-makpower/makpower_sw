@@ -44,14 +44,20 @@ class CRMUserSerializer(serializers.ModelSerializer):
 
 class SSUserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    crm_name = serializers.SerializerMethodField()
 
     class Meta:
         model = CustomUser
         fields = [
-            'id', 'user_id', 'mobile', 'password', 'name', 'email',
+            'id', 'user_id', 'mobile', 'password', 'name' , 'crm', 'crm_name', 'email',
             'party_name', 'dob', 'is_active', 'created_at'
         ]
         read_only_fields = ['user_id', 'created_at']
+
+    def get_crm_name(self, obj):
+        if obj.crm:
+            return obj.crm.name or obj.crm.mobile  # अगर name न हो तो mobile दिखा दे
+        return None
 
     def validate_mobile(self, value):
         if not value.isdigit() or len(value) != 10:

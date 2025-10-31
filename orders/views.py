@@ -478,7 +478,7 @@ def punch_order_to_sheet(request):
         ]
 
         # ✅ Write to Google Sheet
-        write_to_sheet(settings.SHEET_ID_NEW, "order_punch", rows)
+        write_to_sheet(settings.SHEET_ID_NEW, "order_data_from_app", rows)
 
         # ✅ Mark order as punched in DB
         updated_count = CRMVerifiedOrder.objects.filter(
