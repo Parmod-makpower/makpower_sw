@@ -1,18 +1,3 @@
-# from rest_framework import viewsets, permissions
-# from .models import CargoDetails
-# from .serializers import CargoDetailsSerializer
-
-# class CargoDetailsViewSet(viewsets.ModelViewSet):
-#     queryset = CargoDetails.objects.all().order_by('-id')
-#     serializer_class = CargoDetailsSerializer
-#     permission_classes = [permissions.IsAuthenticated]
-
-#     def perform_create(self, serializer):
-#         # ✅ frontend se bheji hui user id use karega
-#         serializer.save()
-
-
-
 import io
 import pandas as pd
 from django.http import FileResponse
@@ -28,9 +13,23 @@ from .serializers import CargoDetailsSerializer
 User = get_user_model()
 
 class CargoDetailsViewSet(viewsets.ModelViewSet):
-    queryset = CargoDetails.objects.all().order_by('-id')
     serializer_class = CargoDetailsSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # अगर ADMIN login है → सभी cargo दिखाओ
+        if user.role == "ADMIN":
+            return CargoDetails.objects.all().order_by('-id')
+
+        # अगर CRM login है → सिर्फ उसी CRM के SS users के cargo दिखाओ
+        if user.role == "CRM":
+            ss_users = User.objects.filter(created_by=user, role="SS")
+            return CargoDetails.objects.filter(user__in=ss_users).order_by('-id')
+
+        # अगर SS login है → सिर्फ अपने cargo दिखाओ
+        return CargoDetails.objects.filter(user=user).order_by('-id')
 
     def perform_create(self, serializer):
         serializer.save()
@@ -71,7 +70,6 @@ class CargoDetailsViewSet(viewsets.ModelViewSet):
 
             existing = CargoDetails.objects.filter(user=user).first()
             if existing:
-                # Update existing record
                 for field, value in cargo_data.items():
                     setattr(existing, field, value)
                 existing.save()
@@ -91,8 +89,6 @@ class CargoDetailsViewSet(viewsets.ModelViewSet):
 
         headers = ['user', 'cargo_name', 'cargo_mobile_number', 'cargo_location', 'parcel_size']
         ws.append(headers)
-
-        # Example Row (optional)
         ws.append(["1", "Example Cargo", "9876543210", "Delhi", "Medium"])
 
         buffer = io.BytesIO()

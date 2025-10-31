@@ -59,21 +59,6 @@ class CRMUserViewSet(viewsets.ModelViewSet):
 
 
 
-# class SSUserViewSet(viewsets.ModelViewSet):
-    serializer_class = SSUserSerializer
-    permission_classes = [permissions.IsAuthenticated, IsCRM]
-
-    def get_queryset(self):
-        return CustomUser.objects.filter(role='SS', created_by=self.request.user)
-
-    def get_serializer_context(self):
-        return {'request': self.request}
-
-    def update(self, request, *args, **kwargs):
-        """Enable partial updates (so password only update works)"""
-        kwargs['partial'] = True  # 👈 Add this
-        return super().update(request, *args, **kwargs)
-
 class DSUserViewSet(viewsets.ModelViewSet):
     serializer_class = DSUserSerializer
     permission_classes = [permissions.IsAuthenticated, IsSS]
