@@ -25,7 +25,16 @@ def sheet_to_db():
                     product = Product.objects.get(product_id=product_id)
                     live_stock_from_sheet = row.get("live_stock")
 
-                    # ✅ Update only if live_stock changed
+                    # ✅ Convert to number safely
+                    if live_stock_from_sheet in [None, '', ' ']:
+                        continue  # skip if empty
+                    try:
+                        live_stock_from_sheet = int(live_stock_from_sheet)
+                    except ValueError:
+                        print(f"⚠️ Invalid live_stock for product {product_id}: {live_stock_from_sheet}")
+                        continue
+
+                    # ✅ Update only if changed
                     if product.live_stock != live_stock_from_sheet:
                         product.live_stock = live_stock_from_sheet
                         product.save(update_fields=["live_stock"])
@@ -36,7 +45,6 @@ def sheet_to_db():
                         updated += 1
 
                 except Product.DoesNotExist:
-                    # Skip if product not found
                     continue
 
         print(f"✅ Synced: {updated} products updated & virtual stock recalculated.")
