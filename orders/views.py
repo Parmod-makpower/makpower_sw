@@ -56,9 +56,7 @@ class SSOrderCreateView(APIView):
                     is_scheme_item=False,
                     ss_virtual_stock=item.get('ss_virtual_stock', getattr(product, 'stock_quantity', 0))
                 )
-
             # 🔹 Scheme reward items add करो
-            print("✅ Scheme Items Received:", scheme_items)  # debug log
 
             for reward in scheme_items:
                 product_id = None
@@ -81,16 +79,22 @@ class SSOrderCreateView(APIView):
 
                 try:
                     product = Product.objects.get(product_id=product_id)
+                    
+                    # ✅ virtual stock जोड़ें
+                    virtual_stock = getattr(product, 'virtual_stock', getattr(product, 'stock_quantity', 0))
+
                     SSOrderItem.objects.create(
                         order=order,
                         product=product,
                         quantity=reward.get('quantity', 0),
                         price=0,
                         is_scheme_item=True,
+                        ss_virtual_stock=virtual_stock,  # ✅ अब यह भी save होगा
                     )
                 except Product.DoesNotExist:
                     print(f"❌ Product not found for reward: {reward}")
                     continue
+
 
             # 🔹 CRM नंबर mapping
             crm_numbers = {
