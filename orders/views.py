@@ -9,15 +9,13 @@ from products.models import Product
 from django.contrib.auth import get_user_model
 from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer, SSOrderHistorySerializer,DispatchOrderSerializer
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.generics import ListAPIView
+from rest_framework.generics import ListAPIView, DestroyAPIView
 from django.shortcuts import get_object_or_404
 from django.db.models import Prefetch,Q
 from .pagination import StandardResultsSetPagination
 from .utils import send_whatsapp_template
-
 from decimal import Decimal, InvalidOperation
-
-
+from rest_framework.pagination import PageNumberPagination
 from django.db import transaction
 from orders.models import PendingOrderItemSnapshot
 from products.utils import recalculate_virtual_stock
@@ -169,6 +167,47 @@ class CRMOrderListView(ListAPIView):
             .prefetch_related("items__product")
             .order_by("-created_at")
         )
+
+
+
+# ✅ Pagination setup
+class OrderPagination(PageNumberPagination):
+    page_size = 10  # एक बार में 10 orders दिखेंगे
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+# ✅ Order List with Pagination
+class DeleteOrderListView(ListAPIView):
+    serializer_class = SS_to_CRM_Orders
+    permission_classes = [IsAuthenticated]
+    pagination_class = OrderPagination
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.is_staff or user.is_superuser:
+            return (
+                SSOrder.objects
+                .select_related("ss_user", "assigned_crm")
+                .prefetch_related("items__product")
+                .order_by("-created_at")
+            )
+
+        return (
+            SSOrder.objects
+            .filter(assigned_crm=user)
+            .select_related("ss_user", "assigned_crm")
+            .prefetch_related("items__product")
+            .order_by("-created_at")
+        )
+
+
+# ✅ Delete Single Order API
+class DeleteSingleOrderView(DestroyAPIView):
+    permission_classes = [IsAuthenticated]
+    queryset = SSOrder.objects.all()
+    lookup_field = "id"
 
 
 
