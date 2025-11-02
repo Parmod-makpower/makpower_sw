@@ -1,14 +1,12 @@
 
 from django.urls import path
-from .views import SSOrderCreateView, SSOrderHistoryView, CRMOrderListView, DeleteOrderListView, CRMOrderVerifyView,CRMVerifiedOrderHistoryView, get_orders_by_order_id, UpdateOrderStatusView, punch_order_to_sheet, DeleteSingleOrderView
+from .views import SSOrderCreateView, SSOrderHistoryView, CRMOrderListView, CRMOrderVerifyView,CRMVerifiedOrderHistoryView, get_orders_by_order_id, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderDeleteView
 
 
 urlpatterns = [
     path("ss-orders/create/", SSOrderCreateView.as_view(), name="ss-order-create"),
     path('ss-orders/history/', SSOrderHistoryView.as_view(), name='ss-order-history'),
-    path("delete/orders/", DeleteOrderListView.as_view(), name="delete-orders-list"),
-    path("delete/orders/<int:id>/", DeleteSingleOrderView.as_view(), name="delete-order"),
-
+    path("crm/orders/<int:order_id>/delete/", CRMOrderDeleteView.as_view(), name="crm-order-delete"),
     path("crm/orders/", CRMOrderListView.as_view(), name="crm-orders-list"),
     path("crm/orders/<int:order_id>/verify/", CRMOrderVerifyView.as_view(), name="crm-order-verify"),
     path("crm/verified/", CRMVerifiedOrderHistoryView.as_view(), name="crm-verified-list"),

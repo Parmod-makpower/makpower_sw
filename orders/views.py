@@ -9,13 +9,12 @@ from products.models import Product
 from django.contrib.auth import get_user_model
 from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer, SSOrderHistorySerializer,DispatchOrderSerializer
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.generics import ListAPIView, DestroyAPIView
+from rest_framework.generics import ListAPIView
 from django.shortcuts import get_object_or_404
 from django.db.models import Prefetch,Q
 from .pagination import StandardResultsSetPagination
 from .utils import send_whatsapp_template
 from decimal import Decimal, InvalidOperation
-from rest_framework.pagination import PageNumberPagination
 from django.db import transaction
 from orders.models import PendingOrderItemSnapshot
 from products.utils import recalculate_virtual_stock
@@ -167,49 +166,6 @@ class CRMOrderListView(ListAPIView):
             .prefetch_related("items__product")
             .order_by("-created_at")
         )
-
-
-
-# ✅ Pagination setup
-class OrderPagination(PageNumberPagination):
-    page_size = 10  # एक बार में 10 orders दिखेंगे
-    page_size_query_param = 'page_size'
-    max_page_size = 100
-
-
-# ✅ Order List with Pagination
-class DeleteOrderListView(ListAPIView):
-    serializer_class = SS_to_CRM_Orders
-    permission_classes = [IsAuthenticated]
-    pagination_class = OrderPagination
-
-    def get_queryset(self):
-        user = self.request.user
-
-        if user.is_staff or user.is_superuser:
-            return (
-                SSOrder.objects
-                .select_related("ss_user", "assigned_crm")
-                .prefetch_related("items__product")
-                .order_by("-created_at")
-            )
-
-        return (
-            SSOrder.objects
-            .filter(assigned_crm=user)
-            .select_related("ss_user", "assigned_crm")
-            .prefetch_related("items__product")
-            .order_by("-created_at")
-        )
-
-
-# ✅ Delete Single Order API
-class DeleteSingleOrderView(DestroyAPIView):
-    permission_classes = [IsAuthenticated]
-    queryset = SSOrder.objects.all()
-    lookup_field = "id"
-
-
 
 
 class CRMOrderVerifyView(APIView):
@@ -368,6 +324,38 @@ class CRMOrderVerifyView(APIView):
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+class CRMOrderDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, order_id):
+        try:
+            crm_user = request.user
+            order = get_object_or_404(SSOrder, id=order_id, assigned_crm=crm_user)
+
+            # अगर ये order पहले verify हुआ था, तो उसके product snapshots restore करो
+            pending_snapshots = PendingOrderItemSnapshot.objects.filter(order=order)
+            affected_products = [snap.product for snap in pending_snapshots]
+
+            with transaction.atomic():
+                # Pending snapshot delete करो
+                pending_snapshots.delete()
+
+                # Virtual stock दोबारा calculate करो हर product का
+                for p in set(affected_products):
+                    recalculate_virtual_stock(p)
+
+                # Order खुद delete करो
+                order.delete()
+
+            return Response(
+                {"message": "Order deleted successfully and stock restored."},
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class CRMVerifiedOrderHistoryView(ListAPIView):
