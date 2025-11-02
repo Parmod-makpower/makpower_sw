@@ -100,6 +100,7 @@ class SSOrderCreateView(APIView):
                 7: "8595957195", # Ajit
                 8: "9266877089", # Harish
                 9: "9266767418", # Simran 
+                133: "7428828836", # Simran 
             }
             crm_number = crm_numbers.get(crm_user.id)
 
