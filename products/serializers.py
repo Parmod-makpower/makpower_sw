@@ -25,6 +25,7 @@ class ProductWithSaleNameSerializer(serializers.ModelSerializer):
             'guarantee',
             'price',
             'moq',
+            'rack_no',
             'quantity_type',
             'live_stock',
             'sale_names',  

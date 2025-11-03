@@ -325,6 +325,7 @@ class CRMOrderVerifyView(APIView):
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+
 class CRMOrderDeleteView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -529,3 +530,47 @@ def punch_order_to_sheet(request):
     except Exception as e:
         logger.error(f"Error in punch_order_to_sheet: {str(e)}", exc_info=True)
         return Response({"success": False, "error": "Internal server error"}, status=500)
+
+
+
+class AddItemToCRMVerifiedOrderView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        crm_order = get_object_or_404(CRMVerifiedOrder, pk=pk)
+        product_id = request.data.get("product_id")
+        quantity = request.data.get("quantity")
+        price = request.data.get("price", 0)
+
+        if not product_id or not quantity:
+            return Response({"error": "Product ID and quantity are required."}, status=400)
+
+        product = get_object_or_404(Product, product_id=product_id)
+
+        # ✅ Check if already exists
+        if CRMVerifiedOrderItem.objects.filter(crm_order=crm_order, product=product).exists():
+            return Response({"error": "This product is already added in this order."}, status=400)
+
+        # ✅ Safe stock check
+        ss_stock = getattr(product, "ss_virtual_stock", 0)
+        virtual_stock = getattr(product, "virtual_stock", 0)
+
+        new_item = CRMVerifiedOrderItem.objects.create(
+            crm_order=crm_order,
+            product=product,
+            quantity=quantity,
+            price=price,
+            ss_virtual_stock=ss_stock if ss_stock > 0 else virtual_stock
+        )
+
+        # ✅ Use Decimal for safe calculation
+        crm_order.total_amount += (Decimal(str(price)) * Decimal(str(quantity)))
+        crm_order.save(update_fields=["total_amount"])
+
+        return Response({
+            "message": "Product added successfully!",
+            "item_id": new_item.id,
+            "product_name": product.product_name,
+            "quantity": quantity,
+            "price": price
+        }, status=201)
