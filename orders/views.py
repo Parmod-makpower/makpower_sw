@@ -574,3 +574,41 @@ class AddItemToCRMVerifiedOrderView(APIView):
             "quantity": quantity,
             "price": price
         }, status=201)
+
+
+
+class CRMVerifiedItemUpdateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        """
+        Update quantity or price of a verified order item
+        """
+        try:
+            item = CRMVerifiedOrderItem.objects.get(pk=pk)
+        except CRMVerifiedOrderItem.DoesNotExist:
+            return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        quantity = request.data.get("quantity")
+        price = request.data.get("price")
+
+        if quantity is not None:
+            item.quantity = quantity
+        if price is not None:
+            item.price = price
+
+        item.save()
+        return Response({"message": "Item updated successfully"})
+
+
+# views.py
+class CRMVerifiedItemDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        try:
+            item = CRMVerifiedOrderItem.objects.get(pk=pk)
+            item.delete()
+            return Response({"message": "Item deleted successfully"}, status=status.HTTP_200_OK)
+        except CRMVerifiedOrderItem.DoesNotExist:
+            return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
