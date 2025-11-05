@@ -13,6 +13,8 @@ class SSOrder(models.Model):
     notes = models.TextField(blank=True, null=True)
     status = models.CharField(max_length=20, default='PENDING')
 
+    note = models.CharField(max_length=100, blank=True, null=True)
+
     def save(self, *args, **kwargs):
         if not self.order_id:
             # Example format: ORD-ABC12345
@@ -79,7 +81,6 @@ class DispatchOrder(models.Model):
     product = models.CharField(max_length=30)  
     quantity = models.PositiveIntegerField()
     order_id = models.CharField(max_length=20, db_index=True)  
-
 
 
 

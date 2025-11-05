@@ -23,7 +23,6 @@ from products.models import Product
 
 User = get_user_model()
 
-
 class SSOrderCreateView(APIView):
     def post(self, request):
         data = request.data
@@ -33,91 +32,107 @@ class SSOrderCreateView(APIView):
             crm_user = User.objects.get(id=data['crm_id'])
             total = data['total']
             items = data['items']
-            scheme_items = data.get('eligibleSchemes', [])  # अब flat array
+            scheme_items = data.get('eligibleSchemes', [])
 
-            # 🔹 नया Order बनाओ
-            order = SSOrder.objects.create(
-                ss_user=ss_user,
-                assigned_crm=crm_user,
-                total_amount=total,
-            )
+            # ✅ Items को Tempered और Non-Tempered में बाँटें
+            tempered_items = []
+            non_tempered_items = []
 
-            # 🔹 Normal products add करो
             for item in items:
                 product = Product.objects.get(product_id=item['id'])
-                SSOrderItem.objects.create(
-                    order=order,
-                    product=product,
-                    quantity=item['quantity'],
-                    price=item['price'] or 0,
-                    is_scheme_item=False,
-                    ss_virtual_stock=item.get('ss_virtual_stock', getattr(product, 'stock_quantity', 0))
+                sub_category = getattr(product, "sub_category", "") or ""
+                if "tempered" in sub_category.lower():
+                    tempered_items.append(item)
+                else:
+                    non_tempered_items.append(item)
+
+            # ✅ Helper function: order create + items insert
+            def create_order(order_items, label="Normal"):
+                if not order_items:
+                    return None
+
+                total_amt = sum(
+                    (i['price'] or 0) * i['quantity'] for i in order_items
                 )
-            # 🔹 Scheme reward items add करो
 
-            for reward in scheme_items:
-                product_id = None
+                order = SSOrder.objects.create(
+                    ss_user=ss_user,
+                    assigned_crm=crm_user,
+                    total_amount=total_amt,
+                    note=f"{label} Order"  # optional tag for clarity
+                )
 
-                # अगर product key integer है
-                if isinstance(reward.get('product'), int):
-                    product_id = reward['product']
-
-                # अगर product key object है { id, name }
-                elif isinstance(reward.get('product'), dict):
-                    product_id = reward['product'].get('id')
-
-                # fallback
-                elif reward.get('product_id'):
-                    product_id = reward['product_id']
-
-                if not product_id:
-                    print(f"⚠️ Skipped reward (no product_id): {reward}")
-                    continue  # safety check
-
-                try:
-                    product = Product.objects.get(product_id=product_id)
-                    
-                    # ✅ virtual stock जोड़ें
-                    virtual_stock = getattr(product, 'virtual_stock', getattr(product, 'stock_quantity', 0))
-
+                for item in order_items:
+                    product = Product.objects.get(product_id=item['id'])
                     SSOrderItem.objects.create(
                         order=order,
                         product=product,
-                        quantity=reward.get('quantity', 0),
-                        price=0,
-                        is_scheme_item=True,
-                        ss_virtual_stock=virtual_stock,  # ✅ अब यह भी save होगा
+                        quantity=item['quantity'],
+                        price=item['price'] or 0,
+                        is_scheme_item=False,
+                        ss_virtual_stock=item.get('ss_virtual_stock', getattr(product, 'stock_quantity', 0))
                     )
-                except Product.DoesNotExist:
-                    print(f"❌ Product not found for reward: {reward}")
-                    continue
 
+                return order
 
-            # 🔹 CRM नंबर mapping
+            # ✅ Create two orders
+            tempered_order = create_order(tempered_items, label="Tempered")
+            normal_order = create_order(non_tempered_items, label="Non-Tempered")
+
+            # ✅ Scheme items — सिर्फ Non-Tempered order में add करो
+            if normal_order and scheme_items:
+                for reward in scheme_items:
+                    product_id = (
+                        reward.get('product_id') or
+                        (reward.get('product', {}).get('id') if isinstance(reward.get('product'), dict) else reward.get('product'))
+                    )
+                    if not product_id:
+                        continue
+
+                    try:
+                        product = Product.objects.get(product_id=product_id)
+                        SSOrderItem.objects.create(
+                            order=normal_order,
+                            product=product,
+                            quantity=reward.get('quantity', 0),
+                            price=0,
+                            is_scheme_item=True,
+                            ss_virtual_stock=getattr(product, 'virtual_stock', getattr(product, 'stock_quantity', 0))
+                        )
+                    except Product.DoesNotExist:
+                        continue
+
+            # ✅ WhatsApp send (अब दोनों orders के लिए)
             crm_numbers = {
-                2: "7678491163", # prince
-                4: "9312093178", # Ankita
-                7: "8595957195", # Ajit
-                8: "9266877089", # Harish
-                9: "9266767418", # Simran 
-                133: "7428828836", # Simran 
+                2: "7678491163",
+                4: "9312093178",
+                7: "8595957195",
+                8: "9266877089",
+                9: "9266767418",
+                133: "7428828836",
             }
             crm_number = crm_numbers.get(crm_user.id)
-
-            # 🔹 WhatsApp Message भेजो
             if crm_number:
-                template_name = "order_updation"  # Meta console template का नाम
+                template_name = "order_updation"
                 template_language = "EN"
-                parameters = [
-                    ss_user.party_name or ss_user.name,  # {{1}}
-                    str(order.order_id),                 # {{2}}
-                    str(order.total_amount)              # {{3}}
-                ]
-                send_whatsapp_template(crm_number, template_name, template_language, parameters)
 
+                for each_order in [tempered_order, normal_order]:
+                    if each_order:
+                        parameters = [
+                            ss_user.party_name or ss_user.name,
+                            str(each_order.order_id),
+                            str(each_order.total_amount)
+                        ]
+                        send_whatsapp_template(crm_number, template_name, template_language, parameters)
+
+
+            # ✅ Response
             return Response({
-                "message": "Order placed successfully.",
-                "order": SSOrderSerializer(order).data
+                "message": "Orders placed successfully.",
+                "orders": {
+                    "tempered_order": SSOrderSerializer(tempered_order).data if tempered_order else None,
+                    "normal_order": SSOrderSerializer(normal_order).data if normal_order else None,
+                }
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
