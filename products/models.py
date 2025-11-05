@@ -4,7 +4,7 @@ from cloudinary.models import CloudinaryField
 # ✅ 2. Product Model
 class Product(models.Model):
     product_id = models.IntegerField(unique=True, primary_key=True)
-    product_name = models.CharField(max_length=50, db_index=True)
+    product_name = models.CharField(max_length=100, db_index=True)
     sub_category = models.CharField(max_length=50, null=True, blank=True)
     cartoon_size = models.CharField(max_length=50, null=True, blank=True)
     guarantee = models.CharField(max_length=50, null=True, blank=True)
