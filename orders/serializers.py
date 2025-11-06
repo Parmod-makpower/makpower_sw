@@ -42,7 +42,7 @@ class SSOrderHistorySerializer(serializers.ModelSerializer):
         model = SSOrder
         fields = [
             'id', 'order_id',
-             'created_at','status','notes',
+             'created_at','status','note',
             'items','total_amount'
         ]
 
@@ -91,7 +91,7 @@ class SS_to_CRM_Orders(serializers.ModelSerializer):
             'ss_party_name', 'ss_user', 'ss_user_name',
             'assigned_crm', 'crm_name',
             'total_amount', 'status', 'created_at',
-            'items',
+            'items','note',
             'recent_rejected_items',
         ]
 

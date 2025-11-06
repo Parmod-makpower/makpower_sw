@@ -77,7 +77,7 @@ class SSOrderCreateView(APIView):
 
             # ✅ Create two orders
             tempered_order = create_order(tempered_items, label="Tempered")
-            normal_order = create_order(non_tempered_items, label="Non-Tempered")
+            normal_order = create_order(non_tempered_items, label="Accessories")
 
             # ✅ Scheme items — सिर्फ Non-Tempered order में add करो
             if normal_order and scheme_items:
