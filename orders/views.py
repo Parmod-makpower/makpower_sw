@@ -155,6 +155,41 @@ class SSOrderHistoryView(APIView):
         return Response({"results": serializer.data})  # ✅ अब results key आएगी
   
 
+@api_view(['POST'])
+def hold_order(request, order_id):
+    try:
+        crm_user = request.user
+        order = get_object_or_404(SSOrder, id=order_id, assigned_crm=crm_user)
+
+        # वो snapshots लो जो पहले order verify/forward होने पर बने थे
+        pending_snapshots = PendingOrderItemSnapshot.objects.filter(order=order)
+        affected_products = [snap.product for snap in pending_snapshots]
+
+        with transaction.atomic():
+
+            # ✅ पहले snapshots delete — ये stock restore का trigger है
+            pending_snapshots.delete()
+
+            # ✅ हर product का virtual stock दोबारा calculate
+            for p in set(affected_products):
+                recalculate_virtual_stock(p)
+
+            # ✅ Order status update
+            order.status = "HOLD"
+            order.notes = request.data.get("notes", order.notes)
+            order.save()
+
+        return Response(
+            {"message": "Order put on HOLD and stock restored."},
+            status=200
+        )
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return Response({"error": str(e)}, status=400)
+
+
 class CRMOrderListView(ListAPIView):
     serializer_class = SS_to_CRM_Orders
     permission_classes = [IsAuthenticated]
@@ -162,27 +197,29 @@ class CRMOrderListView(ListAPIView):
     def get_queryset(self):
         user = self.request.user
 
-        # ✅ अगर user admin है → सबका pending order दिखाओ
+        # ✅ Query params me se status le lo (default = PENDING)
+        status_filter = self.request.query_params.get("status", "PENDING")
+
+        base_queryset = SSOrder.objects.filter(status=status_filter)
+
+        # ✅ यदि कुछ verify हो चुके हों, exclude कर दो
+        base_queryset = base_queryset.exclude(crm_verified_versions__isnull=False)
+
+        # ✅ Admin → sabka, CRM → apna
         if user.is_staff or user.is_superuser:
             return (
-                SSOrder.objects
-                .filter(status="PENDING")  # सिर्फ़ pending वाले orders
-                .exclude(crm_verified_versions__isnull=False)
+                base_queryset
                 .select_related("ss_user", "assigned_crm")
                 .prefetch_related("items__product")
                 .order_by("-created_at")
             )
 
-        # ✅ वरना (CRM user) → सिर्फ़ अपने assigned SS के orders दिखाओ
         return (
-            SSOrder.objects
-            .filter(assigned_crm=user, status="PENDING")
-            .exclude(crm_verified_versions__isnull=False)
+            base_queryset.filter(assigned_crm=user)
             .select_related("ss_user", "assigned_crm")
             .prefetch_related("items__product")
             .order_by("-created_at")
         )
-
 
 class CRMOrderVerifyView(APIView):
     permission_classes = [IsAuthenticated]
