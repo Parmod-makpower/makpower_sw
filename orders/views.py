@@ -7,7 +7,7 @@ from django.db import transaction
 from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder, Product,DispatchOrder
 from products.models import Product
 from django.contrib.auth import get_user_model
-from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer, SSOrderHistorySerializer,DispatchOrderSerializer
+from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer, SSOrderHistorySerializer,DispatchOrderSerializer, CombinedOrderTrackSerializer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import ListAPIView
 from django.shortcuts import get_object_or_404
@@ -664,3 +664,26 @@ class CRMVerifiedItemDeleteView(APIView):
             return Response({"message": "Item deleted successfully"}, status=status.HTTP_200_OK)
         except CRMVerifiedOrderItem.DoesNotExist:
             return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
+
+
+
+
+class CombinedOrderTrackView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, order_id):
+        user = request.user
+
+        try:
+            order = SSOrder.objects.get(order_id=order_id)
+        except SSOrder.DoesNotExist:
+            return Response({"error": "Order not found"}, status=404)
+
+        # ✅ CRM apne assigned orders hi dekhega
+        if not (user.is_staff or user.is_superuser):
+            if order.assigned_crm != user and order.ss_user != user:
+                return Response({"error": "Not authorized"}, status=403)
+
+
+        data = CombinedOrderTrackSerializer(order).data
+        return Response(data, status=200)

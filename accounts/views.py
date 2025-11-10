@@ -94,11 +94,12 @@ class UserHierarchyView(APIView):
                         'ss': {
                             'id': ss.id,
                             'name': ss.name,
+                            'party_name': ss.party_name,
                             'mobile': ss.mobile,
                             'user_id': ss.user_id
                         },
                         'ds_count': ds_users.count(),
-                        'ds_list': list(ds_users.values('id', 'name', 'mobile', 'user_id'))
+                        'ds_list': list(ds_users.values('id', 'name','party_name', 'mobile', 'user_id'))
                     })
                 data.append({
                     'crm': {
@@ -125,10 +126,11 @@ class UserHierarchyView(APIView):
                         'id': ss.id,
                         'name': ss.name,
                         'mobile': ss.mobile,
+                        'party_name': ss.party_name,
                         'user_id': ss.user_id
                     },
                     'ds_count': ds_users.count(),
-                    'ds_list': list(ds_users.values('id', 'name', 'mobile', 'user_id'))
+                    'ds_list': list(ds_users.values('id', 'name','party_name', 'mobile', 'user_id'))
                 })
             return Response({
                 'ss_count': ss_users.count(),
@@ -139,7 +141,7 @@ class UserHierarchyView(APIView):
             ds_users = CustomUser.objects.filter(role='DS', ss=user)
             return Response({
                 'ds_count': ds_users.count(),
-                'ds_list': list(ds_users.values('id', 'name', 'mobile', 'user_id'))
+                'ds_list': list(ds_users.values('id', 'name', 'party_name', 'mobile', 'user_id'))
             })
 
         else:
