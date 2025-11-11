@@ -1,4 +1,6 @@
 import pandas as pd
+import openpyxl
+from openpyxl.utils import get_column_letter
 from rest_framework import viewsets
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
@@ -209,3 +211,52 @@ def get_inactive_products(request):
     serializer = ProductWithSaleNameSerializer(products, many=True)
     return Response(serializer.data)
 
+
+
+@api_view(["GET"])
+def export_products_excel(request):
+    # ✅ Workbook create
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Products"
+
+    # ✅ Columns (same order you requested)
+    columns = [
+        "Product_id",
+        "Sub_category",
+        "Product_name",
+        "Cartoon",
+        "Guarantee",
+        "Price",
+        "MOQ",
+        "Rack"
+    ]
+
+    ws.append(columns)
+
+    # ✅ Add product rows
+    for p in Product.objects.all().order_by("product_id"):
+        ws.append([
+            p.product_id,
+            p.sub_category or "",
+            p.product_name,
+            p.cartoon_size or "",
+            p.guarantee or "",
+            p.price or "",
+            p.moq or "",
+            p.rack_no or "",
+        ])
+
+    # ✅ Set column width auto-adjust (optional but professional)
+    for column_cells in ws.columns:
+        length = max(len(str(cell.value)) for cell in column_cells)
+        ws.column_dimensions[get_column_letter(column_cells[0].column)].width = length + 2
+
+    # ✅ Prepare response
+    response = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    response["Content-Disposition"] = 'attachment; filename="products.xlsx"'
+
+    wb.save(response)
+    return response
