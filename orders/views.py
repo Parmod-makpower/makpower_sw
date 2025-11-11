@@ -190,6 +190,41 @@ def hold_order(request, order_id):
         return Response({"error": str(e)}, status=400)
 
 
+@api_view(['POST'])
+def reject_order(request, order_id):
+    try:
+        crm_user = request.user
+        order = get_object_or_404(SSOrder, id=order_id, assigned_crm=crm_user)
+
+        # वो snapshots लो जो पहले order verify/forward होने पर बने थे
+        pending_snapshots = PendingOrderItemSnapshot.objects.filter(order=order)
+        affected_products = [snap.product for snap in pending_snapshots]
+
+        with transaction.atomic():
+
+            # ✅ पहले snapshots delete — ये stock restore का trigger है
+            pending_snapshots.delete()
+
+            # ✅ हर product का virtual stock दोबारा calculate
+            for p in set(affected_products):
+                recalculate_virtual_stock(p)
+
+            # ✅ Order status update
+            order.status = "REJECTED"
+            order.notes = request.data.get("notes", order.notes)
+            order.save()
+
+        return Response(
+            {"message": "Order  Reject and stock restored."},
+            status=200
+        )
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return Response({"error": str(e)}, status=400)
+
+
 class CRMOrderListView(ListAPIView):
     serializer_class = SS_to_CRM_Orders
     permission_classes = [IsAuthenticated]
