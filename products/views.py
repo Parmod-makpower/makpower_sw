@@ -229,7 +229,8 @@ def export_products_excel(request):
         "Guarantee",
         "Price",
         "MOQ",
-        "Rack"
+        "Rack",
+        "Active"
     ]
 
     ws.append(columns)
@@ -245,6 +246,7 @@ def export_products_excel(request):
             p.price or "",
             p.moq or "",
             p.rack_no or "",
+            "Yes" if p.is_active else "No",
         ])
 
     # ✅ Set column width auto-adjust (optional but professional)

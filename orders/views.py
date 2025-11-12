@@ -573,6 +573,7 @@ def punch_order_to_sheet(request):
         ss_party_name = data.get("ss_party_name")
         crm_name = data.get("crm_name")
         ss_id = data.get("id")
+        dispatch_location = data.get("dispatch_location", "")
         items = data.get("items", [])
 
         # Validate input
@@ -593,6 +594,7 @@ def punch_order_to_sheet(request):
                 item.get("id", ""),
                 ist_timestamp,
                 order_id,
+                dispatch_location,
             ]
             for item in items
         ]
@@ -603,7 +605,7 @@ def punch_order_to_sheet(request):
         # ✅ Mark order as punched in DB
         updated_count = CRMVerifiedOrder.objects.filter(
             original_order__order_id=order_id
-        ).update(punched=True)
+        ).update(punched=True, dispatch_location=dispatch_location)
 
         if updated_count == 0:
             logger.warning(f"No CRMVerifiedOrder found for order_id: {order_id}")

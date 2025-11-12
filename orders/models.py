@@ -50,6 +50,8 @@ class CRMVerifiedOrder(models.Model):
     notes = models.TextField(blank=True, null=True)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     punched = models.BooleanField(default=False, db_index=True)
+    dispatch_location = models.CharField(max_length=50, default="Delhi", db_index=True)  # 🆕 Added
+
 
 
     class Meta:
