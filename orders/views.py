@@ -4,10 +4,9 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import status as drf_status
 from django.db import transaction
-from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder, Product,DispatchOrder
-from products.models import Product
+from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder, Product
 from django.contrib.auth import get_user_model
-from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer, SSOrderHistorySerializer,DispatchOrderSerializer, CombinedOrderTrackSerializer
+from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer, CombinedOrderTrackSerializer, SSOrderSerializerTrack
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import ListAPIView
 from django.shortcuts import get_object_or_404
@@ -18,10 +17,14 @@ from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from orders.models import PendingOrderItemSnapshot
 from products.utils import recalculate_virtual_stock
-from products.models import Product
+from django.conf import settings
+from products.utils import write_to_sheet
+from datetime import datetime
+import logging
 
-
+logger = logging.getLogger(__name__)
 User = get_user_model()
+
 
 class SSOrderCreateView(APIView):
     def post(self, request):
@@ -141,19 +144,6 @@ class SSOrderCreateView(APIView):
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-
-class SSOrderHistoryView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        user = request.user
-        orders = SSOrder.objects.filter(ss_user=user).select_related(
-            "ss_user", "assigned_crm"
-        ).prefetch_related("items__product").order_by("-created_at")[:20]
-
-        serializer = SSOrderHistorySerializer(orders, many=True)
-        return Response({"results": serializer.data})  # ✅ अब results key आएगी
-  
 
 @api_view(['POST'])
 def hold_order(request, order_id):
@@ -447,6 +437,47 @@ class CRMOrderDeleteView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+@api_view(["GET"])
+def list_orders_by_role(request):
+    user = request.user
+
+    if user.role == "ADMIN":
+        orders = SSOrder.objects.all().order_by("-created_at")
+
+    elif user.role == "CRM":
+        orders = SSOrder.objects.filter(assigned_crm=user).order_by("-created_at")[:50]
+
+    elif user.role == "SS":
+        orders = SSOrder.objects.filter(ss_user=user).order_by("-created_at")[:20]
+
+    else:
+        orders = SSOrder.objects.none()
+
+    serializer = SSOrderSerializerTrack(orders, many=True)
+    return Response(serializer.data)
+
+
+class CombinedOrderTrackView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, order_id):
+        user = request.user
+
+        try:
+            order = SSOrder.objects.get(order_id=order_id)
+        except SSOrder.DoesNotExist:
+            return Response({"error": "Order not found"}, status=404)
+
+        # ✅ CRM apne assigned orders hi dekhega
+        if not (user.is_staff or user.is_superuser):
+            if order.assigned_crm != user and order.ss_user != user:
+                return Response({"error": "Not authorized"}, status=403)
+
+
+        data = CombinedOrderTrackSerializer(order).data
+        return Response(data, status=200)
+
+
 class CRMVerifiedOrderHistoryView(ListAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = CRMVerifiedOrderListSerializer
@@ -530,38 +561,6 @@ class UpdateOrderStatusView(APIView):
             "notes": crm_order.notes
         })
 
-    
-@api_view(["GET"])
-def get_orders_by_order_id(request, order_id):
-    try:
-        orders = DispatchOrder.objects.filter(order_id=order_id)
-        
-        if not orders.exists():
-            return Response(
-                {"message": "No orders found for this order_id"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        serializer = DispatchOrderSerializer(orders, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    except Exception as e:
-        return Response(
-            {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
-
-# orders/views.py
-
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from django.conf import settings
-from products.utils import write_to_sheet
-from orders.models import CRMVerifiedOrder
-from datetime import datetime
-import logging
-
-logger = logging.getLogger(__name__)
 
 @api_view(['POST'])
 def punch_order_to_sheet(request):
@@ -619,7 +618,6 @@ def punch_order_to_sheet(request):
     except Exception as e:
         logger.error(f"Error in punch_order_to_sheet: {str(e)}", exc_info=True)
         return Response({"success": False, "error": "Internal server error"}, status=500)
-
 
 
 class AddItemToCRMVerifiedOrderView(APIView):
@@ -690,7 +688,6 @@ class CRMVerifiedItemUpdateView(APIView):
         return Response({"message": "Item updated successfully"})
 
 
-# views.py
 class CRMVerifiedItemDeleteView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -703,24 +700,3 @@ class CRMVerifiedItemDeleteView(APIView):
             return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
-
-
-class CombinedOrderTrackView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, order_id):
-        user = request.user
-
-        try:
-            order = SSOrder.objects.get(order_id=order_id)
-        except SSOrder.DoesNotExist:
-            return Response({"error": "Order not found"}, status=404)
-
-        # ✅ CRM apne assigned orders hi dekhega
-        if not (user.is_staff or user.is_superuser):
-            if order.assigned_crm != user and order.ss_user != user:
-                return Response({"error": "Not authorized"}, status=403)
-
-
-        data = CombinedOrderTrackSerializer(order).data
-        return Response(data, status=200)

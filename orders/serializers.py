@@ -190,13 +190,6 @@ class CRMVerifiedOrderListSerializer(serializers.ModelSerializer):
         ).data
 
 
-class DispatchOrderSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = DispatchOrder
-        fields = "__all__"
-
-
-
 class CombinedOrderTrackSerializer(serializers.ModelSerializer):
     ss_items = serializers.SerializerMethodField()
     crm_data = serializers.SerializerMethodField()
@@ -263,4 +256,16 @@ class CombinedOrderTrackSerializer(serializers.ModelSerializer):
                 "quantity": d.quantity,
             }
             for d in dispatch_items
+        ]
+
+
+class SSOrderSerializerTrack(serializers.ModelSerializer):
+    ss_name = serializers.CharField(source='ss_user.party_name', read_only=True)
+    crm_name = serializers.CharField(source='assigned_crm.name', read_only=True)
+
+    class Meta:
+        model = SSOrder
+        fields = [
+            'id', 'order_id', 'ss_name', 'crm_name',
+            'total_amount', 'note','status', 'created_at'
         ]
