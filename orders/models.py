@@ -82,6 +82,12 @@ class DispatchOrder(models.Model):
     row_key = models.CharField(max_length=100)
     product = models.CharField(max_length=30)  
     quantity = models.PositiveIntegerField()
+    order_id = models.CharField(max_length=20, db_index=True) 
+
+class DispatchOrder1(models.Model):
+    row_key = models.CharField(max_length=100)
+    product = models.CharField(max_length=30)  
+    quantity = models.PositiveIntegerField()
     order_id = models.CharField(max_length=20, db_index=True)  
 
 
