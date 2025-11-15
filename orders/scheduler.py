@@ -4,5 +4,5 @@ from .sync import  sync_dispatch_orders
 
 def start():
     scheduler = BackgroundScheduler()
-    scheduler.add_job(sync_dispatch_orders, 'interval', minutes=76)
+    scheduler.add_job(sync_dispatch_orders, 'interval', minutes=10)
     scheduler.start()
