@@ -722,3 +722,44 @@ class CRMVerifiedItemDeleteView(APIView):
             return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
+
+
+@api_view(["POST"])
+def submit_meet_form(request):
+    try:
+        data = request.data
+
+        business_name = data.get("business_name", "")
+        person_name = data.get("person_name", "")
+        phone = data.get("phone", "")
+        district = data.get("district", "")
+
+        # validation
+        if not person_name or not phone:
+            return Response({"error": "Person name and phone required"}, status=400)
+
+        # IST timestamp
+        ist_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # row for google sheet
+        row = [
+            business_name,
+            person_name,
+            phone,
+            district,
+            ist_timestamp
+        ]
+
+        # sheet name → abc
+        write_to_sheet(
+            settings.SHEET_ID_NEW,
+            "abc",
+            [row]
+        )
+
+        return Response({"success": True, "message": "Form submitted successfully"})
+
+    except Exception as e:
+        logger.error(f"Meet form error: {str(e)}", exc_info=True)
+        return Response({"error": "Internal Server Error"}, status=500)
+
