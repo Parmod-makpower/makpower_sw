@@ -28,6 +28,7 @@ class ProductWithSaleNameSerializer(serializers.ModelSerializer):
             'rack_no',
             'quantity_type',
             'live_stock',
+            'mumbai_stock',
             'sale_names',  
             'image',  
             'image2',  
