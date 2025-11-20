@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import ( ProductViewSet,ProductBulkTemplateDownload,ProductBulkUpload, SaleNameViewSet, SaleNameBulkUploadView,
-    SchemeViewSet,get_all_products_with_salenames, get_inactive_products, get_virtual_stock, export_products_excel
+    SchemeViewSet,get_all_products_with_salenames, get_inactive_products, get_virtual_stock, export_products_excel,ProductUsageReportView
 )
 
 router = DefaultRouter()
@@ -18,6 +18,7 @@ urlpatterns = [
     path('all-products/', get_all_products_with_salenames),
     path('virtual-stock/', get_virtual_stock),
     path("products/export-excel/", export_products_excel, name="export-products-excel"),
+    path("usage/<int:product_id>/", ProductUsageReportView.as_view()),
     path('', include(router.urls)),
 ]
 

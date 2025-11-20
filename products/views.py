@@ -262,3 +262,73 @@ def export_products_excel(request):
 
     wb.save(response)
     return response
+
+
+# products/views.py
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from orders.models import SSOrderItem, PendingOrderItemSnapshot, CRMVerifiedOrderItem, DispatchOrder
+from .models import Product
+
+class ProductUsageReportView(APIView):
+    def get(self, request, product_id):
+        try:
+            product = Product.objects.get(product_id=product_id)
+
+            # Live + Virtual
+            live_stock = product.live_stock or 0
+            virtual_stock = product.virtual_stock or 0
+
+            # Pending Orders List
+            pending_items = PendingOrderItemSnapshot.objects.filter(product=product).select_related("order")
+
+            pending_list = [
+                {
+                    "order_id": p.order.order_id,
+                    "party": p.order.ss_user.party_name,
+                    "quantity": p.quantity,
+                    "order_date": p.order.created_at
+                }
+                for p in pending_items
+            ]
+
+            # CRM Verified History
+            crm_items = CRMVerifiedOrderItem.objects.filter(product=product).select_related("crm_order")
+
+            crm_history = [
+                {
+                    "order_id": c.crm_order.original_order.order_id,
+                    "crm_status": c.crm_order.status,
+                    "approved_qty": c.quantity,
+                    "is_rejected": c.is_rejected,
+                    "verified_by": c.crm_order.crm_user.name,
+                    "verified_at": c.crm_order.verified_at
+                }
+                for c in crm_items
+            ]
+
+            # Dispatch History
+            dispatch_items = DispatchOrder.objects.filter(product=str(product_id))
+
+            dispatch_history = [
+                {
+                    "row_key": d.row_key,
+                    "order_id": d.order_id,
+                    "quantity": d.quantity
+                }
+                for d in dispatch_items
+            ]
+
+            return Response({
+                "product_name": product.product_name,
+                "product_id": product.product_id,
+                "live_stock": live_stock,
+                "virtual_stock": virtual_stock,
+                "pending_orders": pending_list,
+                "crm_history": crm_history,
+                "dispatch_history": dispatch_history
+            }, status=status.HTTP_200_OK)
+
+        except Product.DoesNotExist:
+            return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)
