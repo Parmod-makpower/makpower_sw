@@ -176,7 +176,7 @@ class CRMVerifiedOrderListSerializer(serializers.ModelSerializer):
         model = CRMVerifiedOrder
         fields = [
             'id', 'order_id', 'ss_party_name', 'ss_user_name', 'crm_name','ss_order_created_at',
-            'verified_at', 'status','notes', 'total_amount', 'items','punched'
+            'verified_at', 'status','notes', 'total_amount', 'items','punched','dispatch_location'
         ]
 
     def get_items(self, obj):
