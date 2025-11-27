@@ -35,6 +35,7 @@ class SaleName(models.Model):
 
 class Scheme(models.Model):
     created_by = models.CharField(max_length=100)
+    in_box = models.BooleanField(default=False)
 
     def __str__(self):
         return f"Scheme {self.id}"  # ID दिखाएंगे क्योंकि name हटा दिया है

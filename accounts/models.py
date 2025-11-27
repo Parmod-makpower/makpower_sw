@@ -9,12 +9,13 @@ from django.core.validators import RegexValidator  # ✅ Added
 USER_ROLES = (
     ('ADMIN', 'Admin'),
     ('CRM', 'CRM'),
+    ('ASM', 'ASM'),
     ('SS', 'Super Stockist'),
     ('DS', 'Distributor'),
 )
 
 def generate_user_id(role, last_id):
-    prefix = {'ADMIN': 'AD', 'CRM': 'CRM', 'SS': 'SS', 'DS': 'DS'}
+    prefix = {'ADMIN': 'AD', 'CRM': 'CRM', 'ASM': 'ASM', 'SS': 'SS', 'DS': 'DS'}
     return f"{prefix[role]}{str(last_id + 1).zfill(4)}"
 
 # -------------------------------

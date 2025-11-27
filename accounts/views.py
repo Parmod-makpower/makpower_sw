@@ -57,6 +57,34 @@ class CRMUserViewSet(viewsets.ModelViewSet):
     serializer_class = CRMUserSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdmin]
 
+# accounts/views.py (या उसी फाइल में जहाँ SSUserViewSet है)
+from rest_framework import viewsets, permissions
+from .serializers import SSUserSerializer, ASMUserSerializer
+from .models import CustomUser
+from .permissions import IsCRMOrAdmin  # जैसा आपने SS में use किया
+
+class ASMUserViewSet(viewsets.ModelViewSet):
+    """
+    CRM/ADMIN दोनों ASM users manage कर सकें:
+    - ADMIN -> सभी ASM users देख सकेगा
+    - CRM -> सिर्फ उसके द्वारा बनाये हुए ASM दिखेंगे
+    """
+    serializer_class = ASMUserSerializer
+    permission_classes = [permissions.IsAuthenticated, IsCRMOrAdmin]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == "ADMIN":
+            return CustomUser.objects.filter(role='ASM')
+        return CustomUser.objects.filter(role='ASM', created_by=user)
+
+    def get_serializer_context(self):
+        return {'request': self.request}
+
+    def update(self, request, *args, **kwargs):
+        # Partial updates allowed (PUT will behave like PATCH)
+        kwargs['partial'] = True
+        return super().update(request, *args, **kwargs)
 
 
 class DSUserViewSet(viewsets.ModelViewSet):

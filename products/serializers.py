@@ -68,7 +68,7 @@ class SchemeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Scheme
-        fields = ['id', 'created_by', 'conditions', 'rewards']  # Removed: name, start_date, end_date
+        fields = ['id', 'created_by', 'in_box', 'conditions', 'rewards']
 
     def create(self, validated_data):
         conditions_data = validated_data.pop('conditions', [])
@@ -86,6 +86,7 @@ class SchemeSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         instance.created_by = validated_data.get('created_by', instance.created_by)
+        instance.in_box = validated_data.get('in_box', instance.in_box)
         instance.save()
 
         instance.conditions.all().delete()
