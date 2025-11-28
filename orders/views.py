@@ -10,8 +10,6 @@ from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import ListAPIView
 from django.shortcuts import get_object_or_404
-from django.db.models import Prefetch,Q
-from .pagination import StandardResultsSetPagination
 from .utils import send_whatsapp_template
 from decimal import Decimal, InvalidOperation
 from django.db import transaction
@@ -272,6 +270,7 @@ class CRMOrderVerifyView(APIView):
                     status=data["status"],
                     notes=data.get("notes", ""),
                     total_amount=data.get("total_amount", 0),
+                    dispatch_location=data.get("dispatch_location"),
                 )
 
                 # Original SS items map
@@ -478,7 +477,6 @@ def list_orders_by_role(request):
     return Response(serializer.data)
 
 
-
 class CombinedOrderTrackView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -503,58 +501,29 @@ class CombinedOrderTrackView(APIView):
 class CRMVerifiedOrderHistoryView(ListAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = CRMVerifiedOrderListSerializer
-    pagination_class = StandardResultsSetPagination
+    # pagination_class = StandardResultsSetPagination  # <-- हटा दिया
 
     def get_queryset(self):
         user = self.request.user
         qs = CRMVerifiedOrder.objects.all()
 
-        # Admin can see all; CRM sees only their own
-        if not (getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False)):
+        # Normal CRM sees only their orders
+        if not user.is_staff and not user.is_superuser:
             qs = qs.filter(crm_user=user)
 
-        # Filters
-        status_param = self.request.query_params.get('status')
         q = self.request.query_params.get('q')
-        start_date = self.request.query_params.get('start_date')
-        end_date = self.request.query_params.get('end_date')
-        punched_param = self.request.query_params.get('punched')  # 🔹 new filter
+        punched_param = self.request.query_params.get('punched')
 
-        if status_param:
-            qs = qs.filter(status=status_param)
-        if start_date:
-            qs = qs.filter(verified_at__date__gte=start_date)
-        if end_date:
-            qs = qs.filter(verified_at__date__lte=end_date)
         if q:
-            qs = qs.filter(
-                Q(original_order__order_id__icontains=q) |
-                Q(original_order__ss_user__party_name__icontains=q) |
-                Q(original_order__ss_user__name__icontains=q)
-            )
+            qs = qs.filter(id__icontains=q)
 
-        # 🔹 Handle punched filter
         if punched_param is not None:
-            if punched_param.lower() == 'true':
-                qs = qs.filter(punched=True)
-            elif punched_param.lower() == 'false':
-                qs = qs.filter(punched=False)
+            qs = qs.filter(punched=(punched_param.lower() == 'true'))
         else:
-            # 🔹 Default: only show punched=False orders
             qs = qs.filter(punched=False)
 
-        # Prefetch approved items
-        non_rejected_prefetch = Prefetch(
-            'items',
-            queryset=CRMVerifiedOrderItem.objects.filter(is_rejected=False).select_related('product'),
-            to_attr='approved_items_prefetched'
-        )
-
-        return (
-            qs.select_related('original_order', 'crm_user', 'original_order__ss_user')
-              .prefetch_related(non_rejected_prefetch)
-              .order_by('-verified_at')
-        )
+        # latest 10 orders only
+        return qs.order_by("-verified_at")[:10]
 
 
 class UpdateOrderStatusView(APIView):
@@ -685,7 +654,6 @@ class AddItemToCRMVerifiedOrderView(APIView):
         }, status=201)
 
 
-
 class CRMVerifiedItemUpdateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -720,8 +688,6 @@ class CRMVerifiedItemDeleteView(APIView):
             return Response({"message": "Item deleted successfully"}, status=status.HTTP_200_OK)
         except CRMVerifiedOrderItem.DoesNotExist:
             return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
-
-
 
 
 @api_view(["POST"])
