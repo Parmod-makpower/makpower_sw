@@ -200,6 +200,13 @@ def get_all_products_with_salenames(request):
     return Response(serializer.data)
 
 @api_view(['GET'])
+def get_all_products(request):
+    products = Product.objects.all().order_by('product_id')  # active + inactive both
+    serializer = ProductSerializer(products, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
 def get_virtual_stock(request):
     products = Product.objects.filter(is_active=True).values("product_id", "virtual_stock")
     return Response(products)
