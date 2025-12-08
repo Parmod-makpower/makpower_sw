@@ -46,7 +46,7 @@ class ProductViewSet(viewsets.ModelViewSet):
 class ProductBulkTemplateDownload(APIView):
     def get(self, request):
         # Template columns
-        columns = ["product_id", "product_name", "sub_category", "cartoon_size", "guarantee", "price", "moq", "rack_no"]
+        columns = ["product_id", "product_name", "sub_category", "cartoon_size", "guarantee", "price", "ds_price", "moq", "quantity_type", "rack_no"]
         df = pd.DataFrame(columns=columns)
 
         # Excel response
@@ -54,7 +54,6 @@ class ProductBulkTemplateDownload(APIView):
         response['Content-Disposition'] = 'attachment; filename="product_template.xlsx"'
         df.to_excel(response, index=False)
         return response
-
 
 class ProductBulkUpload(APIView):
     parser_classes = [MultiPartParser]
@@ -67,41 +66,72 @@ class ProductBulkUpload(APIView):
         try:
             df = pd.read_excel(file)
 
-            required_columns = {"product_id", "product_name", "sub_category", "cartoon_size", "guarantee", "price", "moq", "rack_no"}
-            if not required_columns.issubset(df.columns):
-                return Response({"error": "Invalid file format"}, status=status.HTTP_400_BAD_REQUEST)
+            # product_id always required
+            if "product_id" not in df.columns:
+                return Response({"error": "product_id is required"}, status=400)
+
+            # allowed fields to update
+            updatable_fields = {
+                "product_name",
+                "sub_category",
+                "cartoon_size",
+                "guarantee",
+                "price",
+                "ds_price",
+                "moq",
+                "quantity_type",
+                "rack_no",
+            }
 
             created_count = 0
             updated_count = 0
 
             for _, row in df.iterrows():
-                product_id = row["product_id"]
+                pid = row["product_id"]
 
-                # Clean cartoon_size
-                cartoon_size_raw = row.get("cartoon_size", "")
-                if pd.notnull(cartoon_size_raw):
-                    if isinstance(cartoon_size_raw, float) and cartoon_size_raw.is_integer():
-                        cartoon_size_str = str(int(cartoon_size_raw))  # e.g., 200.0 → "200"
-                    else:
-                        cartoon_size_str = str(cartoon_size_raw)       # e.g., 250.5 or "text"
-                else:
-                    cartoon_size_str = ""
+                # check product
+                try:
+                    product = Product.objects.get(product_id=pid)
+                    created = False
+                except Product.DoesNotExist:
+                    product = Product(product_id=pid)
+                    created = True
 
-                # Prepare defaults
-                defaults = {
-                    "product_name": row.get("product_name", ""),
-                    "sub_category": row.get("sub_category", ""),
-                    "cartoon_size": cartoon_size_str,
-                    "guarantee": row.get("guarantee", ""),
-                    "price": str(row.get("price", "")) if pd.notnull(row.get("price")) else "",
-                    "moq": int(row.get("moq", 0)) if pd.notnull(row.get("moq")) else 0,
-                    "rack_no": row.get("rack_no", ""),
-                }
+                # LOOP ONLY COLUMNS PRESENT IN EXCEL
+                for col in df.columns:
+                    if col == "product_id":
+                        continue
 
-                obj, created = Product.objects.update_or_create(
-                    product_id=product_id,
-                    defaults=defaults
-                )
+                    if col not in updatable_fields:
+                        continue
+
+                    value = row[col]
+
+                    # cartoon_size special cleaning
+                    if col == "cartoon_size":
+                        if pd.notnull(value):
+                            if isinstance(value, float) and value.is_integer():
+                                value = str(int(value))
+                            else:
+                                value = str(value)
+                        else:
+                            value = None
+
+                    # price → convert to string always
+                    elif col == "price":
+                        value = str(value) if pd.notnull(value) else None
+
+                    # moq → int if number
+                    elif col == "moq":
+                        value = int(value) if pd.notnull(value) else None
+
+                    # normal fields → ignore NaN
+                    elif pd.isna(value):
+                        value = None
+
+                    setattr(product, col, value)
+
+                product.save()
 
                 if created:
                     created_count += 1
@@ -115,7 +145,7 @@ class ProductBulkUpload(APIView):
             })
 
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": str(e)}, status=400)
 
 
 class SaleNamePagination(PageNumberPagination):
@@ -196,8 +226,11 @@ class SchemeViewSet(viewsets.ModelViewSet):
 @api_view(['GET'])
 def get_all_products_with_salenames(request):
     products = Product.objects.filter(is_active=True).prefetch_related('sale_names').order_by('product_id')
-    serializer = ProductWithSaleNameSerializer(products, many=True)
+    
+    serializer = ProductWithSaleNameSerializer(products, many=True, context={"request": request})
+    
     return Response(serializer.data)
+
 
 @api_view(['GET'])
 def get_all_products(request):

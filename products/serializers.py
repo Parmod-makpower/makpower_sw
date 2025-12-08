@@ -14,6 +14,7 @@ class ProductSerializer(serializers.ModelSerializer):
     
 class ProductWithSaleNameSerializer(serializers.ModelSerializer):
     sale_names = serializers.SerializerMethodField()
+    price = serializers.SerializerMethodField()   # ⭐ override price field
 
     class Meta:
         model = Product
@@ -23,17 +24,29 @@ class ProductWithSaleNameSerializer(serializers.ModelSerializer):
             'sub_category',
             'cartoon_size',
             'guarantee',
-            'price',
+            'price',        # ⭐ this will now come from get_price()
+            'ds_price',
             'moq',
             'rack_no',
             'quantity_type',
             'live_stock',
             'mumbai_stock',
-            'sale_names',  
-            'image',  
-            'image2',  
+            'sale_names',
+            'image',
+            'image2',
             'is_active',
         ]
+
+    def get_price(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        # ⭐ If login user is DS, return ds_price instead of normal price
+        if user and hasattr(user, "role") and user.role == "DS":
+            return obj.ds_price
+
+        # ⭐ For SS or public user: normal price
+        return obj.price
 
     def get_sale_names(self, obj):
         return [s.sale_name for s in obj.sale_names.all()]

@@ -9,9 +9,10 @@ class Product(models.Model):
     cartoon_size = models.CharField(max_length=50, null=True, blank=True)
     guarantee = models.CharField(max_length=50, null=True, blank=True)
     price = models.CharField(max_length=10, null=True, blank=True)
+    ds_price = models.CharField(max_length=10, null=True, blank=True)
     moq = models.IntegerField(null=True, blank=True)
     live_stock = models.IntegerField(null=True, blank=True)
-    virtual_stock = models.IntegerField(null=True, blank=True, default=0)  # ✅ New Field
+    virtual_stock = models.IntegerField(null=True, blank=True, default=0) 
     mumbai_stock = models.IntegerField(null=True, blank=True)
     quantity_type = models.CharField(max_length=50, default="MOQ")
     rack_no = models.CharField(max_length=50, null=True, blank=True)
