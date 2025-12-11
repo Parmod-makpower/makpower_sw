@@ -1,14 +1,16 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, viewsets, permissions
-from django.contrib.auth import authenticate
+from rest_framework import viewsets, permissions
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.db.models import Q  
+from django.db.models import Q
 from rest_framework.permissions import IsAuthenticated
-from .serializers import CRMUserSerializer, SSUserSerializer, DSUserSerializer, UserSerializer
+from .serializers import  SSUserSerializer, UserSerializer
 from .models import CustomUser
-from accounts.permissions import IsCRMOrAdmin  # 👈 नया permission import करें
 
+
+class IsCRM(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.role == 'CRM'
 
 
 class LoginView(APIView):
@@ -35,72 +37,6 @@ class LoginView(APIView):
             }, status=200)
 
         return Response({'detail': 'Invalid credentials'}, status=400)
-
-
-class IsAdmin(permissions.BasePermission):
-    def has_permission(self, request, view):
-        return request.user.role == 'ADMIN'
-
-
-class IsCRM(permissions.BasePermission):
-    def has_permission(self, request, view):
-        return request.user.role == 'CRM'
-
-
-class IsSS(permissions.BasePermission):
-    def has_permission(self, request, view):
-        return request.user.role == 'SS'
-
-
-class CRMUserViewSet(viewsets.ModelViewSet):
-    queryset = CustomUser.objects.filter(role='CRM')
-    serializer_class = CRMUserSerializer
-    permission_classes = [permissions.IsAuthenticated, IsAdmin]
-
-# accounts/views.py (या उसी फाइल में जहाँ SSUserViewSet है)
-from rest_framework import viewsets, permissions
-from .serializers import SSUserSerializer, ASMUserSerializer
-from .models import CustomUser
-from .permissions import IsCRMOrAdmin  # जैसा आपने SS में use किया
-
-class ASMUserViewSet(viewsets.ModelViewSet):
-    """
-    CRM/ADMIN दोनों ASM users manage कर सकें:
-    - ADMIN -> सभी ASM users देख सकेगा
-    - CRM -> सिर्फ उसके द्वारा बनाये हुए ASM दिखेंगे
-    """
-    serializer_class = ASMUserSerializer
-    permission_classes = [permissions.IsAuthenticated, IsCRMOrAdmin]
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.role == "ADMIN":
-            return CustomUser.objects.filter(role='ASM')
-        return CustomUser.objects.filter(role='ASM', created_by=user)
-
-    def get_serializer_context(self):
-        return {'request': self.request}
-
-    def update(self, request, *args, **kwargs):
-        # Partial updates allowed (PUT will behave like PATCH)
-        kwargs['partial'] = True
-        return super().update(request, *args, **kwargs)
-
-
-class DSUserViewSet(viewsets.ModelViewSet):
-    serializer_class = DSUserSerializer
-    permission_classes = [permissions.IsAuthenticated, IsSS]
-
-    def get_queryset(self):
-        user = self.request.user
-        return CustomUser.objects.filter(role='DS', ss=user)
-
-    def get_serializer_context(self):
-        return {'request': self.request}
-
-    def update(self, request, *args, **kwargs):
-        kwargs['partial'] = True  # 👈 So password-only update works
-        return super().update(request, *args, **kwargs)
 
 
 class UserHierarchyView(APIView):
@@ -176,24 +112,16 @@ class UserHierarchyView(APIView):
             return Response({'detail': 'Unauthorized'}, status=403)
 
 
-
 class SSUserViewSet(viewsets.ModelViewSet):
     serializer_class = SSUserSerializer
-    permission_classes = [permissions.IsAuthenticated, IsCRMOrAdmin]  # 👈 यहाँ बदलाव
 
     def get_queryset(self):
         user = self.request.user
 
-        # अगर ADMIN login है → सभी SS users दिखाओ
+        # Admin → sab users
         if user.role == "ADMIN":
-            return CustomUser.objects.filter(role='SS')
+            return CustomUser.objects.all()
 
-        # अगर CRM login है → सिर्फ उसी के बनाए SS दिखाओ
-        return CustomUser.objects.filter(role='SS', created_by=user)
+        # CRM → uske banaye users
+        return CustomUser.objects.filter(crm=user)
 
-    def get_serializer_context(self):
-        return {'request': self.request}
-
-    def update(self, request, *args, **kwargs):
-        kwargs['partial'] = True
-        return super().update(request, *args, **kwargs)

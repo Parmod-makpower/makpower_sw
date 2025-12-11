@@ -29,8 +29,18 @@ class CustomUserManager(BaseUserManager):
         if not role:
             raise ValueError('Role is required')
 
-        last_id = self.model.objects.filter(role=role).count()
-        user_id = generate_user_id(role, last_id)
+        # Get max existing number for the role
+        prefix = {'ADMIN': 'AD', 'CRM': 'CRM', 'ASM': 'ASM', 'SS': 'SS', 'DS': 'DS'}
+        last_user = self.model.objects.filter(role=role).order_by('-id').first()
+        if last_user:
+            try:
+                last_num = int(last_user.user_id.replace(prefix[role], ''))
+            except:
+                last_num = 0
+        else:
+            last_num = 0
+
+        user_id = f"{prefix[role]}{str(last_num + 1).zfill(4)}"
 
         user = self.model(
             mobile=mobile,
@@ -61,9 +71,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     role = models.CharField(max_length=10, choices=USER_ROLES, db_index=True)
 
     name = models.CharField(max_length=100, blank=True, null=True) 
-    email = models.EmailField(blank=True, null=True)
     party_name = models.CharField(max_length=150, blank=True, null=True, db_index=True)  
-    dob = models.DateField(blank=True, null=True)
 
     crm = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='crm_users', db_index=True)
     ss = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='ss_users')
