@@ -730,3 +730,35 @@ def submit_meet_form(request):
         logger.error(f"Meet form error: {str(e)}", exc_info=True)
         return Response({"error": "Internal Server Error"}, status=500)
 
+#
+@api_view(["POST"])
+def submit_dealer_list(request):
+    try:
+        dealers = request.data.get("dealers", [])
+
+        if not dealers:
+            return Response({"error": "No dealers found"}, status=400)
+
+        rows = []
+        for d in dealers:
+            rows.append([
+                d.get("dealer_name", ""),
+                d.get("shop_name", ""),
+                d.get("mobile", ""),
+                d.get("block", ""),
+                d.get("district", ""),
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # IST timestamp
+            ])
+
+        # Sheet name → Dealers
+        write_to_sheet(
+            settings.SHEET_ID_NEW,
+            "abc",
+            rows
+        )
+
+        return Response({"success": True, "message": "Dealers submitted successfully"})
+
+    except Exception as e:
+        logger.error(f"Dealer submit error: {str(e)}", exc_info=True)
+        return Response({"error": "Internal Server Error"}, status=500)
