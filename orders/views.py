@@ -220,29 +220,28 @@ class CRMOrderListView(ListAPIView):
     def get_queryset(self):
         user = self.request.user
 
-        # ✅ Query params me se status le lo (default = PENDING)
         status_filter = self.request.query_params.get("status", "PENDING")
 
         base_queryset = SSOrder.objects.filter(status=status_filter)
-
-        # ✅ यदि कुछ verify हो चुके हों, exclude कर दो
         base_queryset = base_queryset.exclude(crm_verified_versions__isnull=False)
 
-        # ✅ Admin → sabka, CRM → apna
+        # Admin → all
         if user.is_staff or user.is_superuser:
             return (
                 base_queryset
                 .select_related("ss_user", "assigned_crm")
                 .prefetch_related("items__product")
-                .order_by("-created_at")
+                .order_by("-created_at")[:20]   # << LIMIT ONLY 20
             )
 
+        # CRM → only own orders
         return (
             base_queryset.filter(assigned_crm=user)
             .select_related("ss_user", "assigned_crm")
             .prefetch_related("items__product")
-            .order_by("-created_at")
+            .order_by("-created_at")[:20]       # << LIMIT ONLY 20
         )
+
 
 class CRMOrderVerifyView(APIView):
     permission_classes = [IsAuthenticated]
