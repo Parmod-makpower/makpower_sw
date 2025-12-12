@@ -730,7 +730,8 @@ def submit_meet_form(request):
         logger.error(f"Meet form error: {str(e)}", exc_info=True)
         return Response({"error": "Internal Server Error"}, status=500)
 
-#
+
+
 @api_view(["POST"])
 def submit_dealer_list(request):
     try:
@@ -740,6 +741,7 @@ def submit_dealer_list(request):
             return Response({"error": "No dealers found"}, status=400)
 
         rows = []
+
         for d in dealers:
             rows.append([
                 d.get("dealer_name", ""),
@@ -747,10 +749,16 @@ def submit_dealer_list(request):
                 d.get("mobile", ""),
                 d.get("block", ""),
                 d.get("district", ""),
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # IST timestamp
+
+                # ⭐ NEW SPECIAL FIELDS ⭐
+                d.get("your_name", ""),
+                d.get("super_stockist_name", ""),
+                d.get("distributor_name", ""),
+
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # timestamp
             ])
 
-        # Sheet name → Dealers
+        # Google Sheet Page Name
         write_to_sheet(
             settings.SHEET_ID_NEW,
             "abc",
