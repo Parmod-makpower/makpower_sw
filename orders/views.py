@@ -748,6 +748,7 @@ def submit_dealer_list(request):
                 d.get("mobile", ""),
                 d.get("block", ""),
                 d.get("district", ""),
+                d.get("quantity", ""),
 
                 # ⭐ NEW SPECIAL FIELDS ⭐
                 d.get("your_name", ""),

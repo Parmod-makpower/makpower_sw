@@ -3,5 +3,5 @@ from .sync import  sheet_to_db
 
 def start():
     scheduler = BackgroundScheduler()
-    scheduler.add_job(sheet_to_db, 'interval', minutes=7)
+    scheduler.add_job(sheet_to_db, 'interval', minutes=13)
     scheduler.start()
