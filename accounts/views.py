@@ -4,7 +4,7 @@ from rest_framework import viewsets, permissions
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db.models import Q
 from rest_framework.permissions import IsAuthenticated
-from .serializers import  SSUserSerializer, UserSerializer
+from .serializers import  SSUserSerializer, UserSerializer, SSUserSerializerDealer
 from .models import CustomUser
 
 
@@ -125,3 +125,20 @@ class SSUserViewSet(viewsets.ModelViewSet):
         # CRM → uske banaye users
         return CustomUser.objects.filter(crm=user)
 
+
+# dealer form k liya
+from rest_framework.generics import ListAPIView
+class SSUserListView(ListAPIView):
+    serializer_class = SSUserSerializerDealer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return (
+            CustomUser.objects
+            .filter(role="SS", is_active=True)
+            .select_related("crm")
+            .order_by("name")
+        )
+    
+    
+# dealer form k liya

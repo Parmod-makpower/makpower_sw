@@ -1,5 +1,5 @@
 from django.urls import path, include
-from .views import LoginView, SSUserViewSet, UserHierarchyView
+from .views import LoginView, SSUserViewSet, UserHierarchyView, SSUserListView
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -12,5 +12,6 @@ urlpatterns = [
     path('refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('', include(router.urls)),
     path('hierarchy/', UserHierarchyView.as_view(), name='admin-dashboard'),
+    path("users/ss/", SSUserListView.as_view(), name="ss-user-list"),
    
 ]

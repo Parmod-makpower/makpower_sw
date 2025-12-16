@@ -749,10 +749,13 @@ def submit_dealer_list(request):
                 d.get("block", ""),
                 d.get("district", ""),
                 d.get("quantity", ""),
+                d.get("pin_code", ""),
 
                 # ⭐ NEW SPECIAL FIELDS ⭐
+                d.get("designation", ""), 
                 d.get("your_name", ""),
                 d.get("super_stockist_name", ""),
+                d.get("super_stockist_crm", ""),
                 d.get("distributor_name", ""),
 
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # timestamp

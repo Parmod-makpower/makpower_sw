@@ -74,3 +74,26 @@ class SSUserSerializer(serializers.ModelSerializer):
 
         instance.save()
         return instance
+
+
+
+
+# dealer form k liya
+class SSUserSerializerDealer(serializers.ModelSerializer):
+    crm_name = serializers.CharField(source="crm.name", read_only=True)
+    crm_user_id = serializers.CharField(source="crm.user_id", read_only=True)
+
+    class Meta:
+        model = CustomUser
+        fields = [
+            "id",
+            "user_id",
+            "name",
+            "party_name",
+            "mobile",
+            "role",
+            "crm_user_id",
+            "crm_name",
+        ]
+
+# dealer form k liya
