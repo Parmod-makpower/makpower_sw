@@ -130,7 +130,6 @@ class SSUserViewSet(viewsets.ModelViewSet):
 from rest_framework.generics import ListAPIView
 class SSUserListView(ListAPIView):
     serializer_class = SSUserSerializerDealer
-    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         return (
