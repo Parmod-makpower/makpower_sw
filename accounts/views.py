@@ -1,4 +1,5 @@
 from rest_framework.views import APIView
+from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 from rest_framework import viewsets, permissions
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -6,6 +7,7 @@ from django.db.models import Q
 from rest_framework.permissions import IsAuthenticated
 from .serializers import  SSUserSerializer, UserSerializer, SSUserSerializerDealer
 from .models import CustomUser
+from accounts.permissions import IsCRMOrAdmin
 
 
 class IsCRM(permissions.BasePermission):
@@ -112,22 +114,42 @@ class UserHierarchyView(APIView):
             return Response({'detail': 'Unauthorized'}, status=403)
 
 
+# class SSUserViewSet(viewsets.ModelViewSet):
+#     serializer_class = SSUserSerializer
+
+#     def get_queryset(self):
+#         user = self.request.user
+
+#         # Admin → sab users
+#         if user.role == "ADMIN":
+#             return CustomUser.objects.all()
+
+#         # CRM → uske banaye users
+#         return CustomUser.objects.filter(crm=user)
+
+ 
 class SSUserViewSet(viewsets.ModelViewSet):
     serializer_class = SSUserSerializer
+    permission_classes = [permissions.IsAuthenticated, IsCRMOrAdmin]
 
     def get_queryset(self):
         user = self.request.user
 
-        # Admin → sab users
         if user.role == "ADMIN":
             return CustomUser.objects.all()
 
-        # CRM → uske banaye users
         return CustomUser.objects.filter(crm=user)
 
+    def get_serializer_context(self):
+        return {'request': self.request}
+
+    def update(self, request, *args, **kwargs):
+        kwargs['partial'] = True   # 🔥 VERY IMPORTANT
+        return super().update(request, *args, **kwargs)
+    
 
 # dealer form k liya
-from rest_framework.generics import ListAPIView
+
 class SSUserListView(ListAPIView):
     serializer_class = SSUserSerializerDealer
 
