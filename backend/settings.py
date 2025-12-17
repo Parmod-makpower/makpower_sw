@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'products',
     'distributer',
     'orders',       
+    'otherinfo',       
     'cargo_details',
     'cloudinary',
     'cloudinary_storage',
