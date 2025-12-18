@@ -239,7 +239,7 @@ class CRMOrderListView(ListAPIView):
             base_queryset.filter(assigned_crm=user)
             .select_related("ss_user", "assigned_crm")
             .prefetch_related("items__product")
-            .order_by("-created_at")[:20]       # << LIMIT ONLY 20
+            .order_by("-created_at")[:25]       # << LIMIT ONLY 20
         )
 
 
