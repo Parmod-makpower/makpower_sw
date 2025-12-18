@@ -1,4 +1,5 @@
 from rest_framework.views import APIView
+from django.db.models import Prefetch
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
@@ -219,28 +220,84 @@ class CRMOrderListView(ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
-
         status_filter = self.request.query_params.get("status", "PENDING")
 
-        base_queryset = SSOrder.objects.filter(status=status_filter)
-        base_queryset = base_queryset.exclude(crm_verified_versions__isnull=False)
-
-        # Admin → all
-        if user.is_staff or user.is_superuser:
-            return (
-                base_queryset
-                .select_related("ss_user", "assigned_crm")
-                .prefetch_related("items__product")
-                .order_by("-created_at")[:20]   # << LIMIT ONLY 20
-            )
-
-        # CRM → only own orders
-        return (
-            base_queryset.filter(assigned_crm=user)
-            .select_related("ss_user", "assigned_crm")
-            .prefetch_related("items__product")
-            .order_by("-created_at")[:25]       # << LIMIT ONLY 20
+        # 🔹 Rejected items queryset (LATEST first)
+        rejected_items_qs = (
+            CRMVerifiedOrderItem.objects
+            .filter(is_rejected=True)
+            .select_related("product", "crm_order")
+            .order_by("-crm_order__verified_at")
         )
+
+        base_queryset = (
+            SSOrder.objects
+            .filter(status=status_filter)
+            .exclude(crm_verified_versions__isnull=False)
+            .select_related(
+                "ss_user",
+                "assigned_crm"
+            )
+            .prefetch_related(
+                "items__product",
+                Prefetch(
+                    "crm_verified_versions__items",
+                    queryset=rejected_items_qs,
+                    to_attr="prefetched_rejected_items"
+                )
+            )
+            .order_by("-created_at")
+        )
+
+        # 🔹 Admin → all orders
+        if user.is_staff or user.is_superuser:
+            return base_queryset[:20]
+
+        # 🔹 CRM → only assigned orders
+        return base_queryset.filter(assigned_crm=user)[:25]
+
+
+class CRMOrderListView(ListAPIView):
+    serializer_class = SS_to_CRM_Orders
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        status_filter = self.request.query_params.get("status", "PENDING")
+
+        # 🔹 Rejected items queryset (LATEST first)
+        rejected_items_qs = (
+            CRMVerifiedOrderItem.objects
+            .filter(is_rejected=True)
+            .select_related("product", "crm_order")
+            .order_by("-crm_order__verified_at")
+        )
+
+        base_queryset = (
+            SSOrder.objects
+            .filter(status=status_filter)
+            .exclude(crm_verified_versions__isnull=False)
+            .select_related(
+                "ss_user",
+                "assigned_crm"
+            )
+            .prefetch_related(
+                "items__product",
+                Prefetch(
+                    "crm_verified_versions__items",
+                    queryset=rejected_items_qs,
+                    to_attr="prefetched_rejected_items"
+                )
+            )
+            .order_by("-created_at")
+        )
+
+        # 🔹 Admin → all orders
+        if user.is_staff or user.is_superuser:
+            return base_queryset[:20]
+
+        # 🔹 CRM → only assigned orders
+        return base_queryset.filter(assigned_crm=user)[:25]
 
 
 class CRMOrderVerifyView(APIView):

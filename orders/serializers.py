@@ -78,58 +78,52 @@ class OnlySSOrderItemSerializer(serializers.ModelSerializer):
 
 class SS_to_CRM_Orders(serializers.ModelSerializer):
     items = OnlySSOrderItemSerializer(many=True, read_only=True)
-    ss_user_name = serializers.CharField(source='ss_user.name', read_only=True)
-    crm_name = serializers.CharField(source='assigned_crm.name', read_only=True)
-    ss_party_name = serializers.CharField(source='ss_user.party_name', read_only=True)
+
+    ss_user_name = serializers.CharField(source="ss_user.name", read_only=True)
+    ss_party_name = serializers.CharField(source="ss_user.party_name", read_only=True)
+
+    crm_name = serializers.CharField(source="assigned_crm.name", read_only=True)
 
     recent_rejected_items = serializers.SerializerMethodField()
 
     class Meta:
         model = SSOrder
         fields = [
-            'id', 'order_id',
-            'ss_party_name', 'ss_user', 'ss_user_name',
-            'assigned_crm', 'crm_name',
-            'total_amount', 'status', 'created_at',
-            'items','note',
-            'recent_rejected_items',
+            "id",
+            "order_id",
+            "ss_party_name",
+            "ss_user",
+            "ss_user_name",
+            "assigned_crm",
+            "crm_name",
+            "total_amount",
+            "status",
+            "created_at",
+            "items",
+            "note",
+            "recent_rejected_items",
         ]
 
     def get_recent_rejected_items(self, obj):
         """
-        हर product का latest CRMVerifiedOrderItem देखो।
-        अगर latest rejected है → दिखाओ,
-        अगर बाद में approve हो गया → हटा दो।
+        🔥 ZERO DB QUERY
+        Data already prefetched in View
         """
-        # Subquery: हर product का सबसे recent verification entry निकालना
-        latest_subquery = (
-            CRMVerifiedOrderItem.objects
-            .filter(
-                product=OuterRef("product"),
-                crm_order__original_order__ss_user=obj.ss_user
-            )
-            .order_by("-crm_order__verified_at")
-        )
 
-        # Latest entry लो per product
-        latest_items = (
-            CRMVerifiedOrderItem.objects
-            .filter(
-                id=Subquery(latest_subquery.values("id")[:1])
-            )
-            .select_related("product", "crm_order")
-            .filter(is_rejected=True)[:10]  # सिर्फ़ latest reject वाले
-        )
+        result = []
 
-        return [
-            {
+        rejected_items = getattr(obj, "prefetched_rejected_items", [])
+
+        for row in rejected_items:
+            result.append({
                 "product": row.product.product_id,
                 "product_name": row.product.product_name,
                 "quantity": row.quantity,
                 "last_rejected_at": row.crm_order.verified_at,
-            }
-            for row in latest_items
-        ]
+            })
+
+        # latest 10 only
+        return result[:10]
 
 
 class CRMVerifiedOrderItemSerializer(serializers.ModelSerializer):
