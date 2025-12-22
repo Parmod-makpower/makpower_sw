@@ -1,6 +1,6 @@
 
 from django.urls import path
-from .views import SSOrderCreateView, CRMOrderListView, CRMOrderVerifyView,CRMVerifiedOrderHistoryView, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderDeleteView, AddItemToCRMVerifiedOrderView, CRMVerifiedItemUpdateView, CRMVerifiedItemDeleteView, hold_order, reject_order, CombinedOrderTrackView, list_orders_by_role, submit_meet_form, submit_dealer_list
+from .views import SSOrderCreateView, CRMOrderListView, CRMOrderVerifyView,CRMVerifiedOrderHistoryView, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderDeleteView, AddItemToCRMVerifiedOrderView, CRMVerifiedItemUpdateView, CRMVerifiedItemDeleteView, hold_order, reject_order, CombinedOrderTrackView, list_orders_by_role, submit_meet_form, submit_dealer_list,DeleteAllDispatchOrders
 
 
 urlpatterns = [
@@ -18,6 +18,7 @@ urlpatterns = [
     path('punch-to-sheet/', punch_order_to_sheet, name='punch-to-sheet'),
     path("track-order/<str:order_id>/", CombinedOrderTrackView.as_view()),
     path('orders-by-role/',list_orders_by_role, name='orders-by-role'),
+    path("dispatch-orders/delete-all/", DeleteAllDispatchOrders.as_view()),
 
     path("submit-meet-form/", submit_meet_form, name="submit_meet_form"),
     path("submit-dealers/", submit_dealer_list),

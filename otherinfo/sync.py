@@ -1,7 +1,8 @@
 from django.conf import settings
 from django.db import transaction, connection
-from .models import SamplingSheet
+from .models import SamplingSheet, NotInStockReport
 from products.utils import get_sheet
+from datetime import datetime
 
 def sync_sampling_sheet():
     try:
@@ -48,3 +49,64 @@ def sync_sampling_sheet():
 
     except Exception as e:
         print(f"❌ Sync failed due to error: {e}")
+
+
+
+def sync_not_in_stock():
+    try:
+        # 🔒 Old DB connections close
+        connection.close()
+
+        sheet = get_sheet(
+            sheet_id=settings.SHEET_ID_NEW,
+            sheet_name="NIS"
+        )
+
+        rows = sheet.get_all_records()
+
+        if not rows:
+            print("⚠️ NIA sheet खाली है")
+            return
+
+        objects = []
+
+        with transaction.atomic():
+            # ✅ पहले पूरा table clear (fast & safe)
+            NotInStockReport.objects.all().delete()
+
+            for row in rows:
+                product = row.get("Item Name")
+                original_qty = row.get("Original")
+                date_value = row.get("Date")
+                party_name = row.get("Party Name")
+                order_no = row.get("Order No.")
+                balance_qty = row.get("Balance qty")
+
+                # ❌ Mandatory check
+                if not product or not party_name or not order_no:
+                    continue
+
+                # 📅 Date convert (sheet → Django)
+                try:
+                    date_value = datetime.strptime(date_value, "%d/%m/%Y").date()
+                except Exception:
+                    continue
+
+                objects.append(
+                    NotInStockReport(
+                        product=product.strip(),
+                        original_quantity=int(original_qty or 0),
+                        date=date_value,
+                        party_name=party_name.strip(),
+                        order_no=order_no.strip(),
+                        balance_qty=int(balance_qty or 0),
+                    )
+                )
+
+            # 🚀 Bulk insert (20k+ rows fast)
+            NotInStockReport.objects.bulk_create(objects, batch_size=1000)
+
+        print(f"✅ Not In Stock sync complete: {len(objects)} rows")
+
+    except Exception as e:
+        print(f"❌ NIA Sync failed: {e}")

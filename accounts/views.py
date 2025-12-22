@@ -148,7 +148,7 @@ class SSUserViewSet(viewsets.ModelViewSet):
         return super().update(request, *args, **kwargs)
     
 
-# dealer form k liya
+# dealer only form k liyaform k liya
 
 class SSUserListView(ListAPIView):
     serializer_class = SSUserSerializerDealer
