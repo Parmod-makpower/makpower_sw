@@ -76,6 +76,55 @@ class OnlySSOrderItemSerializer(serializers.ModelSerializer):
         fields = ['id', 'product', 'product_name', 'quantity','ss_virtual_stock', 'price', 'is_scheme_item']
 
 
+# class SS_to_CRM_Orders(serializers.ModelSerializer):
+#     items = OnlySSOrderItemSerializer(many=True, read_only=True)
+
+#     ss_user_name = serializers.CharField(source="ss_user.name", read_only=True)
+#     ss_party_name = serializers.CharField(source="ss_user.party_name", read_only=True)
+
+#     crm_name = serializers.CharField(source="assigned_crm.name", read_only=True)
+
+#     recent_rejected_items = serializers.SerializerMethodField()
+
+#     class Meta:
+#         model = SSOrder
+#         fields = [
+#             "id",
+#             "order_id",
+#             "ss_party_name",
+#             "ss_user",
+#             "ss_user_name",
+#             "assigned_crm",
+#             "crm_name",
+#             "total_amount",
+#             "status",
+#             "created_at",
+#             "items",
+#             "note",
+#             "recent_rejected_items",
+#         ]
+
+#     def get_recent_rejected_items(self, obj):
+#         """
+#         🔥 ZERO DB QUERY
+#         Data already prefetched in View
+#         """
+
+#         result = []
+
+#         rejected_items = getattr(obj, "prefetched_rejected_items", [])
+
+#         for row in rejected_items:
+#             result.append({
+#                 "product": row.product.product_id,
+#                 "product_name": row.product.product_name,
+#                 "quantity": row.quantity,
+#                 "last_rejected_at": row.crm_order.verified_at,
+#             })
+
+#         # latest 10 only
+#         return result[:10]
+
 class SS_to_CRM_Orders(serializers.ModelSerializer):
     items = OnlySSOrderItemSerializer(many=True, read_only=True)
 
@@ -83,8 +132,6 @@ class SS_to_CRM_Orders(serializers.ModelSerializer):
     ss_party_name = serializers.CharField(source="ss_user.party_name", read_only=True)
 
     crm_name = serializers.CharField(source="assigned_crm.name", read_only=True)
-
-    recent_rejected_items = serializers.SerializerMethodField()
 
     class Meta:
         model = SSOrder
@@ -101,29 +148,7 @@ class SS_to_CRM_Orders(serializers.ModelSerializer):
             "created_at",
             "items",
             "note",
-            "recent_rejected_items",
         ]
-
-    def get_recent_rejected_items(self, obj):
-        """
-        🔥 ZERO DB QUERY
-        Data already prefetched in View
-        """
-
-        result = []
-
-        rejected_items = getattr(obj, "prefetched_rejected_items", [])
-
-        for row in rejected_items:
-            result.append({
-                "product": row.product.product_id,
-                "product_name": row.product.product_name,
-                "quantity": row.quantity,
-                "last_rejected_at": row.crm_order.verified_at,
-            })
-
-        # latest 10 only
-        return result[:10]
 
 
 class CRMVerifiedOrderItemSerializer(serializers.ModelSerializer):
