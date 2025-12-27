@@ -21,3 +21,11 @@ class NotInStockReport(models.Model):
     def __str__(self):
         return f"{self.product} - {self.order_no}"
  
+
+class PassportCouponRecord(models.Model):
+    user_name = models.CharField(max_length=150)
+    passport_number = models.CharField(max_length=50)
+    coupon_number = models.CharField(max_length=50)
+
+    def __str__(self):
+        return f"{self.user_name} - {self.passport_number}"

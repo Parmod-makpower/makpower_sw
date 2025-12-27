@@ -287,7 +287,6 @@ class CRMOrderListView(ListAPIView):
         return base_queryset.filter(assigned_crm=user)[:25]
 
 
-
 class CRMOrderVerifyView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -542,7 +541,6 @@ class CombinedOrderTrackView(APIView):
         return Response(data, status=200)
 
 
-
 class CRMVerifiedOrderHistoryView(ListAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = CRMVerifiedOrderListSerializer
@@ -775,7 +773,6 @@ def submit_meet_form(request):
         return Response({"error": "Internal Server Error"}, status=500)
 
 
-
 @api_view(["POST"])
 def submit_dealer_list(request):
     try:
@@ -832,3 +829,5 @@ class DeleteAllDispatchOrders(APIView):
             },
             status=status.HTTP_200_OK
         )
+    
+    
