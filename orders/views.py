@@ -214,49 +214,6 @@ def reject_order(request, order_id):
         return Response({"error": str(e)}, status=400)
 
 
-# class CRMOrderListView(ListAPIView):
-#     serializer_class = SS_to_CRM_Orders
-#     permission_classes = [IsAuthenticated]
-
-#     def get_queryset(self):
-#         user = self.request.user
-#         status_filter = self.request.query_params.get("status", "PENDING")
-
-#         # 🔹 Rejected items queryset (LATEST first)
-#         rejected_items_qs = (
-#             CRMVerifiedOrderItem.objects
-#             .filter(is_rejected=True)
-#             .select_related("product", "crm_order")
-#             .order_by("-crm_order__verified_at")
-#         )
-
-#         base_queryset = (
-#             SSOrder.objects
-#             .filter(status=status_filter)
-#             .exclude(crm_verified_versions__isnull=False)
-#             .select_related(
-#                 "ss_user",
-#                 "assigned_crm"
-#             )
-#             .prefetch_related(
-#                 "items__product",
-#                 Prefetch(
-#                     "crm_verified_versions__items",
-#                     queryset=rejected_items_qs,
-#                     to_attr="prefetched_rejected_items"
-#                 )
-#             )
-#             .order_by("-created_at")
-#         )
-
-#         # 🔹 Admin → all orders
-#         if user.is_staff or user.is_superuser:
-#             return base_queryset[:20]
-
-#         # 🔹 CRM → only assigned orders
-#         return base_queryset.filter(assigned_crm=user)[:25]
-
-
 class CRMOrderListView(ListAPIView):
     serializer_class = SS_to_CRM_Orders
     permission_classes = [IsAuthenticated]
@@ -544,7 +501,6 @@ class CombinedOrderTrackView(APIView):
 class CRMVerifiedOrderHistoryView(ListAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = CRMVerifiedOrderListSerializer
-    # pagination_class = StandardResultsSetPagination  # <-- हटा दिया
 
     def get_queryset(self):
         user = self.request.user
@@ -633,7 +589,7 @@ def punch_order_to_sheet(request):
         ]
 
         # ✅ Write to Google Sheet
-        write_to_sheet(settings.SHEET_ID_NEW, "abc", rows)
+        write_to_sheet(settings.SHEET_ID_NEW, "order_data_from_app", rows)
 
         # ✅ Mark order as punched in DB
         updated_count = CRMVerifiedOrder.objects.filter(
