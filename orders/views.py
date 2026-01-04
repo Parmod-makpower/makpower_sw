@@ -405,8 +405,15 @@ class CRMOrderBulkDeleteView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        user = request.user
         order_ids = request.data.get("order_ids", [])
-        crm_user = request.user
+
+        # ✅ ONLY ADMIN CAN DELETE
+        if user.role != "ADMIN":
+            return Response(
+                {"error": "You are not allowed to delete orders."},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         if not order_ids:
             return Response(
@@ -414,29 +421,33 @@ class CRMOrderBulkDeleteView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        orders = SSOrder.objects.filter(
-            id__in=order_ids,
-            assigned_crm=crm_user
-        )
+        # ✅ ADMIN can delete ANY order
+        orders = SSOrder.objects.filter(id__in=order_ids)
+
+        if not orders.exists():
+            return Response(
+                {"error": "No valid orders found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
         affected_products = []
 
         with transaction.atomic():
             for order in orders:
                 snapshots = PendingOrderItemSnapshot.objects.filter(order=order)
-                affected_products += [s.product for s in snapshots]
+                affected_products.extend([s.product for s in snapshots])
                 snapshots.delete()
                 order.delete()
 
-            for p in set(affected_products):
-                recalculate_virtual_stock(p)
+            # ✅ Recalculate stock once per product
+            for product in set(affected_products):
+                recalculate_virtual_stock(product)
 
         return Response(
-            {
-                "message": f"{orders.count()} orders permanently deleted"
-            },
+            {"message": f"{orders.count()} orders permanently deleted"},
             status=status.HTTP_200_OK
         )
+
 
 
 @api_view(["GET"])
