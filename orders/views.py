@@ -401,39 +401,42 @@ class CRMOrderVerifyView(APIView):
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-
-class CRMOrderDeleteView(APIView):
+class CRMOrderBulkDeleteView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def delete(self, request, order_id):
-        try:
-            crm_user = request.user
-            order = get_object_or_404(SSOrder, id=order_id, assigned_crm=crm_user)
+    def post(self, request):
+        order_ids = request.data.get("order_ids", [])
+        crm_user = request.user
 
-            # अगर ये order पहले verify हुआ था, तो उसके product snapshots restore करो
-            pending_snapshots = PendingOrderItemSnapshot.objects.filter(order=order)
-            affected_products = [snap.product for snap in pending_snapshots]
-
-            with transaction.atomic():
-                # Pending snapshot delete करो
-                pending_snapshots.delete()
-
-                # Virtual stock दोबारा calculate करो हर product का
-                for p in set(affected_products):
-                    recalculate_virtual_stock(p)
-
-                # Order खुद delete करो
-                order.delete()
-
+        if not order_ids:
             return Response(
-                {"message": "Order deleted successfully and stock restored."},
-                status=status.HTTP_200_OK
+                {"error": "No orders selected"},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        orders = SSOrder.objects.filter(
+            id__in=order_ids,
+            assigned_crm=crm_user
+        )
+
+        affected_products = []
+
+        with transaction.atomic():
+            for order in orders:
+                snapshots = PendingOrderItemSnapshot.objects.filter(order=order)
+                affected_products += [s.product for s in snapshots]
+                snapshots.delete()
+                order.delete()
+
+            for p in set(affected_products):
+                recalculate_virtual_stock(p)
+
+        return Response(
+            {
+                "message": f"{orders.count()} orders permanently deleted"
+            },
+            status=status.HTTP_200_OK
+        )
 
 
 @api_view(["GET"])
@@ -609,26 +612,46 @@ def punch_order_to_sheet(request):
         logger.error(f"Error in punch_order_to_sheet: {str(e)}", exc_info=True)
         return Response({"success": False, "error": "Internal server error"}, status=500)
 
-
 class AddItemToCRMVerifiedOrderView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
         crm_order = get_object_or_404(CRMVerifiedOrder, pk=pk)
-        product_id = request.data.get("product_id")
-        quantity = request.data.get("quantity")
-        price = request.data.get("price", 0)
 
-        if not product_id or not quantity:
-            return Response({"error": "Product ID and quantity are required."}, status=400)
+        product_id = request.data.get("product_id")
+        raw_qty = request.data.get("quantity")
+        raw_price = request.data.get("price", 0)
+
+        if not product_id or not raw_qty:
+            return Response(
+                {"error": "Product ID and quantity are required."},
+                status=400
+            )
+
+        # ✅ SAFE quantity
+        try:
+            quantity = int(raw_qty)
+        except (TypeError, ValueError):
+            return Response({"error": "Invalid quantity."}, status=400)
+
+        # ✅ SAFE price (🔥 MAIN FIX)
+        try:
+            price = Decimal(raw_price)
+        except (InvalidOperation, TypeError):
+            price = Decimal("0")
 
         product = get_object_or_404(Product, product_id=product_id)
 
-        # ✅ Check if already exists
-        if CRMVerifiedOrderItem.objects.filter(crm_order=crm_order, product=product).exists():
-            return Response({"error": "This product is already added in this order."}, status=400)
+        # ✅ Prevent duplicate product
+        if CRMVerifiedOrderItem.objects.filter(
+            crm_order=crm_order, product=product
+        ).exists():
+            return Response(
+                {"error": "This product is already added in this order."},
+                status=400
+            )
 
-        # ✅ Safe stock check
+        # ✅ Stock logic
         ss_stock = getattr(product, "ss_virtual_stock", 0)
         virtual_stock = getattr(product, "virtual_stock", 0)
 
@@ -636,21 +659,24 @@ class AddItemToCRMVerifiedOrderView(APIView):
             crm_order=crm_order,
             product=product,
             quantity=quantity,
-            price=price,
+            price=price,   # 🔥 ALWAYS Decimal 0 or valid
             ss_virtual_stock=ss_stock if ss_stock > 0 else virtual_stock
         )
 
-        # ✅ Use Decimal for safe calculation
-        crm_order.total_amount += (Decimal(str(price)) * Decimal(str(quantity)))
+        # ✅ Total calculation safe
+        crm_order.total_amount += price * Decimal(quantity)
         crm_order.save(update_fields=["total_amount"])
 
-        return Response({
-            "message": "Product added successfully!",
-            "item_id": new_item.id,
-            "product_name": product.product_name,
-            "quantity": quantity,
-            "price": price
-        }, status=201)
+        return Response(
+            {
+                "message": "Product added successfully!",
+                "item_id": new_item.id,
+                "product_name": product.product_name,
+                "quantity": quantity,
+                "price": price,
+            },
+            status=201
+        )
 
 
 class CRMVerifiedItemUpdateView(APIView):

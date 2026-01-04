@@ -1,13 +1,13 @@
 
 from django.urls import path
-from .views import SSOrderCreateView, CRMOrderListView, CRMOrderVerifyView,CRMVerifiedOrderHistoryView, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderDeleteView, AddItemToCRMVerifiedOrderView, CRMVerifiedItemUpdateView, CRMVerifiedItemDeleteView, hold_order, reject_order, CombinedOrderTrackView, list_orders_by_role, submit_meet_form, submit_dealer_list,DeleteAllDispatchOrders
+from .views import SSOrderCreateView, CRMOrderListView, CRMOrderVerifyView,CRMVerifiedOrderHistoryView, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderBulkDeleteView, AddItemToCRMVerifiedOrderView, CRMVerifiedItemUpdateView, CRMVerifiedItemDeleteView, hold_order, reject_order, CombinedOrderTrackView, list_orders_by_role, submit_meet_form, submit_dealer_list,DeleteAllDispatchOrders
 
 
 urlpatterns = [
     path("ss-orders/create/", SSOrderCreateView.as_view(), name="ss-order-create"),
     path('crm/orders/<int:order_id>/hold/', hold_order),
     path('crm/orders/<int:order_id>/reject/', reject_order),
-    path("crm/orders/<int:order_id>/delete/", CRMOrderDeleteView.as_view(), name="crm-order-delete"),
+    path("crm/orders/bulk-delete/", CRMOrderBulkDeleteView.as_view(), name="crm-order-bulk-delete"),
     path("crm/orders/", CRMOrderListView.as_view(), name="crm-orders-list"),
     path("crm/orders/<int:order_id>/verify/", CRMOrderVerifyView.as_view(), name="crm-order-verify"),
     path("crm/verified/", CRMVerifiedOrderHistoryView.as_view(), name="crm-verified-list"),
