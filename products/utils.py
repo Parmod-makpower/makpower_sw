@@ -33,46 +33,39 @@ def get_gspread_client():
     creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
     return gspread.authorize(creds)
 
-
-def write_to_sheet(sheet_id, sheet_name, rows: list, retries=3, delay=5):
+def write_to_sheet(sheet_id, sheet_name, rows: list, retries=3, delay=3):
     """
-    Efficiently write multiple rows to Google Sheet in a single API call.
-    Auto-retries on temporary quota or network issues.
+    Fast & safe bulk append to Google Sheet.
+    No full sheet read → no timeout / quota issue.
     """
 
     if not rows:
         logger.warning("⚠️ No rows to write to sheet.")
         return
 
-    try:
-        client = get_gspread_client()
-        sheet = client.open_by_key(sheet_id).worksheet(sheet_name)
+    client = get_gspread_client()
+    sheet = client.open_by_key(sheet_id).worksheet(sheet_name)
 
-        # ✅ Find next available row
-        existing_data = sheet.get_all_values()
-        next_row = len(existing_data) + 1
+    for attempt in range(retries):
+        try:
+            # ✅ BEST way: direct append (Google handles row position)
+            sheet.append_rows(rows, value_input_option="RAW")
 
-        # ✅ Prepare range for bulk write (A-H = 8 columns here)
-        last_col_letter = chr(ord("A") + len(rows[0]) - 1)
-        range_str = f"A{next_row}:{last_col_letter}{next_row + len(rows) - 1}"
+            logger.info(f"✅ Successfully appended {len(rows)} rows to '{sheet_name}'")
+            return
 
-        for attempt in range(retries):
-            try:
-                # ✅ Single API call for all rows (fast + quota safe)
-                sheet.update(range_str, rows)
-                logger.info(f"✅ Successfully wrote {len(rows)} rows to sheet '{sheet_name}'")
-                return
-            except gspread.exceptions.APIError as e:
-                if "quota" in str(e).lower() and attempt < retries - 1:
-                    logger.warning(f"⚠️ Quota hit, retrying in {delay}s... (Attempt {attempt+1}/{retries})")
-                    time.sleep(delay)
-                else:
-                    logger.error(f"❌ Failed to write to sheet after {retries} retries: {e}")
-                    raise e
+        except gspread.exceptions.APIError as e:
+            err_msg = str(e).lower()
 
-    except Exception as e:
-        logger.error(f"🚨 Error in write_to_sheet: {str(e)}", exc_info=True)
-        raise e
+            if ("quota" in err_msg or "rate" in err_msg or "timeout" in err_msg) and attempt < retries - 1:
+                logger.warning(
+                    f"⚠️ Sheet API issue, retrying in {delay}s... "
+                    f"(Attempt {attempt + 1}/{retries})"
+                )
+                time.sleep(delay)
+            else:
+                logger.error("❌ Sheet write failed permanently", exc_info=True)
+                raise
 
 
 

@@ -565,13 +565,11 @@ class UpdateOrderStatusView(APIView):
             "notes": crm_order.notes
         })
 
-
 @api_view(['POST'])
 def punch_order_to_sheet(request):
     try:
         data = request.data
 
-        # Extract required fields
         order_id = data.get("order_id")
         ss_party_name = data.get("ss_party_name")
         crm_name = data.get("crm_name")
@@ -579,18 +577,27 @@ def punch_order_to_sheet(request):
         dispatch_location = data.get("dispatch_location", "")
         items = data.get("items", [])
 
-        # Validate input
         if not order_id or not items:
             return Response({"error": "Missing order_id or items"}, status=400)
 
-        # Generate IST timestamp
+        # ✅ Prevent double punch (VERY IMPORTANT)
+        order_obj = CRMVerifiedOrder.objects.filter(
+            original_order__order_id=order_id,
+            punched=False
+        ).first()
+
+        if not order_obj:
+            return Response(
+                {"error": "Order already punched"},
+                status=400
+            )
+
         ist_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Prepare rows for Google Sheet
         rows = [
             [
                 item.get("product_name", ""),
-                item.get("quantity", 0),
+                int(item.get("quantity", 0)),
                 ss_party_name,
                 ss_id,
                 crm_name,
@@ -603,25 +610,29 @@ def punch_order_to_sheet(request):
         ]
 
         # ✅ Write to Google Sheet
-        write_to_sheet(settings.SHEET_ID_NEW, "order_data_from_app", rows)
+        write_to_sheet(
+            settings.SHEET_ID_NEW,
+            "order_data_from_app",
+            rows
+        )
 
-        # ✅ Mark order as punched in DB
-        updated_count = CRMVerifiedOrder.objects.filter(
-            original_order__order_id=order_id
-        ).update(punched=True, dispatch_location=dispatch_location)
-
-        if updated_count == 0:
-            logger.warning(f"No CRMVerifiedOrder found for order_id: {order_id}")
-            return Response({"error": "No CRMVerifiedOrder found for this order_id"}, status=404)
+        # ✅ Mark punched AFTER successful sheet write
+        order_obj.punched = True
+        order_obj.dispatch_location = dispatch_location
+        order_obj.save(update_fields=["punched", "dispatch_location"])
 
         return Response({
             "success": True,
-            "message": f"{len(rows)} rows written to sheet and order marked as punched"
+            "message": f"{len(rows)} rows punched successfully"
         })
 
     except Exception as e:
-        logger.error(f"Error in punch_order_to_sheet: {str(e)}", exc_info=True)
-        return Response({"success": False, "error": "Internal server error"}, status=500)
+        logger.error("🚨 Error in punch_order_to_sheet", exc_info=True)
+        return Response(
+            {"success": False, "error": str(e)},
+            status=500
+        )
+
 
 class AddItemToCRMVerifiedOrderView(APIView):
     permission_classes = [IsAuthenticated]
