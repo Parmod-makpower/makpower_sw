@@ -576,21 +576,24 @@ def punch_order_to_sheet(request):
         ss_id = data.get("id")
         dispatch_location = data.get("dispatch_location", "")
         items = data.get("items", [])
+        is_single_row = data.get("is_single_row", False)
 
         if not order_id or not items:
             return Response({"error": "Missing order_id or items"}, status=400)
 
-        # ✅ Prevent double punch (VERY IMPORTANT)
-        order_obj = CRMVerifiedOrder.objects.filter(
-            original_order__order_id=order_id,
-            punched=False
-        ).first()
+        # 🔐 Bulk punch only → prevent double punch
+        order_obj = None
+        if not is_single_row:
+            order_obj = CRMVerifiedOrder.objects.filter(
+                original_order__order_id=order_id,
+                punched=False
+            ).first()
 
-        if not order_obj:
-            return Response(
-                {"error": "Order already punched"},
-                status=400
-            )
+            if not order_obj:
+                return Response(
+                    {"error": "Order already punched"},
+                    status=400
+                )
 
         ist_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -609,21 +612,23 @@ def punch_order_to_sheet(request):
             for item in items
         ]
 
-        # ✅ Write to Google Sheet
+        # ✅ Always write to sheet
         write_to_sheet(
             settings.SHEET_ID_NEW,
-            "order_data_from_app",
+            "abc",
             rows
         )
 
-        # ✅ Mark punched AFTER successful sheet write
-        order_obj.punched = True
-        order_obj.dispatch_location = dispatch_location
-        order_obj.save(update_fields=["punched", "dispatch_location"])
+        # ✅ Mark punched ONLY for bulk punch
+        if not is_single_row and order_obj:
+            order_obj.punched = True
+            order_obj.dispatch_location = dispatch_location
+            order_obj.save(update_fields=["punched", "dispatch_location"])
 
         return Response({
             "success": True,
-            "message": f"{len(rows)} rows punched successfully"
+            "message": f"{len(rows)} rows punched successfully",
+            "single_row": is_single_row
         })
 
     except Exception as e:
