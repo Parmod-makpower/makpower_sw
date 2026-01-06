@@ -38,7 +38,7 @@ class LoginView(APIView):
                 'user': UserSerializer(user).data  # ✅ Full serialized user
             }, status=200)
 
-        return Response({'detail': 'Invalid credentials'}, status=400)
+        return Response({'detail': 'Incorrect Password'}, status=400)
 
 
 class UserHierarchyView(APIView):
