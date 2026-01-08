@@ -144,6 +144,53 @@ class SSOrderCreateView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+class SimpleSSOrderCreateView(APIView):
+    """
+    Only creates empty order
+    No products, no items
+    """
+
+    def post(self, request):
+        try:
+            ss_id = request.data.get("ss_id")
+            crm_id = request.data.get("crm_id")
+            note = request.data.get("note", "")
+
+            if not ss_id or not crm_id:
+                return Response(
+                    {"error": "ss_id and crm_id are required"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            ss_user = User.objects.get(id=ss_id)
+            crm_user = User.objects.get(id=crm_id)
+
+            order = SSOrder.objects.create(
+                ss_user=ss_user,
+                assigned_crm=crm_user,
+                total_amount=0,
+                status="PENDING",
+                note=note or "Empty Order"
+            )
+
+            return Response({
+                "message": "Order created successfully",
+                "order": SSOrderSerializer(order).data
+            }, status=status.HTTP_201_CREATED)
+
+        except User.DoesNotExist:
+            return Response(
+                {"error": "Invalid SS or CRM"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
 @api_view(['POST'])
 def hold_order(request, order_id):
     try:
