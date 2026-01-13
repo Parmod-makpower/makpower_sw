@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import status as drf_status
 from django.db import transaction
+from django.db.models import Q
 from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder, Product, DispatchOrder
 from django.contrib.auth import get_user_model
 from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer, CombinedOrderTrackSerializer, SSOrderSerializerTrack
@@ -565,24 +566,30 @@ class CRMVerifiedOrderHistoryView(ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        qs = CRMVerifiedOrder.objects.all()
 
-        # Normal CRM sees only their orders
+        qs = CRMVerifiedOrder.objects.select_related(
+            "original_order",
+            "original_order__ss_user",
+            "crm_user"
+        )
+
         if not user.is_staff and not user.is_superuser:
             qs = qs.filter(crm_user=user)
 
-        q = self.request.query_params.get('q')
-        punched_param = self.request.query_params.get('punched')
+        q = self.request.query_params.get("q")
+        punched_param = self.request.query_params.get("punched")
 
         if q:
-            qs = qs.filter(id__icontains=q)
+            qs = qs.filter(
+                Q(id__icontains=q) |                          # 9898
+                Q(original_order__order_id__icontains=q)      # ORD-6CF49D38
+            )
 
         if punched_param is not None:
-            qs = qs.filter(punched=(punched_param.lower() == 'true'))
+            qs = qs.filter(punched=(punched_param.lower() == "true"))
         else:
             qs = qs.filter(punched=False)
 
-        # latest 10 orders only
         return qs.order_by("-verified_at")[:10]
 
 
