@@ -1,5 +1,4 @@
 from rest_framework.views import APIView
-from django.db.models import Prefetch
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
@@ -8,7 +7,7 @@ from django.db import transaction
 from django.db.models import Q
 from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder, Product, DispatchOrder
 from django.contrib.auth import get_user_model
-from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer, CombinedOrderTrackSerializer, SSOrderSerializerTrack
+from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer, CombinedOrderTrackSerializer, SSOrderSerializerTrack, DispatchOrderSerializer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import ListAPIView
 from django.shortcuts import get_object_or_404
@@ -19,8 +18,17 @@ from orders.models import PendingOrderItemSnapshot
 from products.utils import recalculate_virtual_stock
 from django.conf import settings
 from products.utils import write_to_sheet
+import openpyxl
+from django.utils import timezone
+from rest_framework.parsers import MultiPartParser
+from rest_framework import status
+from .models import DispatchOrder
+from django.http import HttpResponse
+from rest_framework.views import APIView
 from datetime import datetime
 import logging
+
+
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -880,6 +888,32 @@ def submit_dealer_list(request):
         return Response({"error": "Internal Server Error"}, status=500)
 
 
+
+class DispatchOrderListView(ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = DispatchOrderSerializer
+
+    def get_queryset(self):
+        qs = DispatchOrder.objects.all()
+
+        from_date = self.request.query_params.get("from")
+        to_date = self.request.query_params.get("to")
+
+        if from_date:
+            qs = qs.filter(order_packed_time__date__gte=from_date)
+
+        if to_date:
+            qs = qs.filter(order_packed_time__date__lte=to_date)
+
+        qs = qs.order_by("-order_packed_time")
+
+        # ✅ ONLY limit when NO filters
+        if not from_date and not to_date:
+            return qs[:10]
+
+        return qs
+
+
 class DeleteAllDispatchOrders(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -893,4 +927,106 @@ class DeleteAllDispatchOrders(APIView):
             status=status.HTTP_200_OK
         )
     
-    
+class DeleteSelectedDispatchOrders(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        ids = request.data.get("ids", [])
+        count, _ = DispatchOrder.objects.filter(id__in=ids).delete()
+        return Response(
+            {"deleted_count": count},
+            status=200
+        )
+
+
+class DownloadDispatchExcel(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Dispatch Orders"
+
+        # Header
+        ws.append([
+            "order_id",
+            "product",
+            "quantity",
+            "order_packed_time",  # optional
+        ])
+
+        # Example row (optional)
+        ws.append([
+            "ORD-12345",
+            "Product A",
+            10,
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        ])
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        response["Content-Disposition"] = "attachment; filename=dispatch_orders.xlsx"
+        wb.save(response)
+        return response
+
+
+class UploadDispatchExcel(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+        file = request.FILES.get("file")
+
+        if not file:
+            return Response(
+                {"error": "Excel file required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        wb = openpyxl.load_workbook(file)
+        ws = wb.active
+
+        created = 0
+
+        for row in ws.iter_rows(min_row=2, values_only=True):
+
+            # ✅ SAFE INDEX READ (NO UNPACKING)
+            order_id = row[0] if len(row) > 0 else None
+            product = row[1] if len(row) > 1 else None
+            quantity = row[2] if len(row) > 2 else None
+            packed_time = row[3] if len(row) > 3 else None
+
+            if not order_id or not product or not quantity:
+                continue
+
+            # 🔥 DATE HANDLE
+            if packed_time:
+                if isinstance(packed_time, datetime):
+                    final_time = packed_time
+                elif isinstance(packed_time, str):
+                    try:
+                        final_time = datetime.strptime(
+                            packed_time.strip(),
+                            "%d-%m-%Y %H:%M"
+                        )
+                    except ValueError:
+                        final_time = timezone.now()
+                else:
+                    final_time = timezone.now()
+            else:
+                final_time = timezone.now()
+
+            DispatchOrder.objects.create(
+                order_id=str(order_id).strip(),
+                product=str(product).strip(),
+                quantity=int(quantity),
+                order_packed_time=final_time
+            )
+
+            created += 1
+
+        return Response(
+            {"message": "Upload successful", "created": created},
+            status=status.HTTP_201_CREATED
+        )

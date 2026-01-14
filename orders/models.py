@@ -77,12 +77,19 @@ class CRMVerifiedOrderItem(models.Model):
     def __str__(self):
         return f"{self.product} - {self.quantity}"
 
-
 class DispatchOrder(models.Model):
-    row_key = models.CharField(max_length=100, unique=True)
-    product = models.CharField(max_length=30)  
+    order_id = models.CharField(max_length=20, db_index=True)
+    product = models.CharField(max_length=30)
     quantity = models.PositiveIntegerField()
-    order_id = models.CharField(max_length=20, db_index=True)  
+
+    order_packed_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True
+    )
+
+    class Meta:
+        ordering = ["-order_packed_time"]
 
 
 class PendingOrderItemSnapshot(models.Model):
