@@ -35,7 +35,6 @@ class SSOrderItem(models.Model):
     def __str__(self):
         return f"{self.product} - {self.quantity}"
 
-
 # orders/models.py
 
 class CRMVerifiedOrder(models.Model):
@@ -79,7 +78,7 @@ class CRMVerifiedOrderItem(models.Model):
 
 class DispatchOrder(models.Model):
     order_id = models.CharField(max_length=20, db_index=True)
-    product = models.CharField(max_length=30)
+    product = models.CharField(max_length=100)
     quantity = models.PositiveIntegerField()
 
     order_packed_time = models.DateTimeField(
@@ -100,3 +99,7 @@ class PendingOrderItemSnapshot(models.Model):
 
     def __str__(self):
         return f"{self.order.order_id} - {self.product}- {self.product.product_name} - {self.quantity}"
+
+
+
+
