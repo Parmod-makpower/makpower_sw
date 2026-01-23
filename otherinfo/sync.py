@@ -29,6 +29,7 @@ def sync_sampling_sheet():
             for row in rows:
                 party_name = row.get("PARTY NAME")
                 items = row.get("Items")
+                mahotsav_dispatch_quantity = row.get("mahotsav_dispatch_quantity")
 
                 if not party_name:
                     continue
@@ -39,7 +40,8 @@ def sync_sampling_sheet():
                 new_rows.append(
                     SamplingSheet(
                         party_name=party_name.strip(),
-                        items=items.strip()
+                        items=items.strip(),
+                        mahotsav_dispatch_quantity=mahotsav_dispatch_quantity
                     )
                 )
 
