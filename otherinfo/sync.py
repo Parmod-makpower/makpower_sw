@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.db import transaction, connection
-from .models import SamplingSheet, NotInStockReport
+from .models import SamplingSheet, NotInStockReport, Mahotsav
 from products.utils import get_sheet
 from datetime import datetime
 
@@ -112,3 +112,51 @@ def sync_not_in_stock():
 
     except Exception as e:
         print(f"❌ NIA Sync failed: {e}")
+
+
+
+def sync_mahotsav_sheet():
+    try:
+        # 🔒 पुरानी DB connections बंद करो
+        connection.close()
+
+        sheet = get_sheet(
+            sheet_id=settings.SHEET_ID_NEW,
+            sheet_name="MAHOTSAV_SHEET"
+        )
+
+        rows = sheet.get_all_records()
+
+        with transaction.atomic():
+            # ✅ पहले पूरा table clear
+            Mahotsav.objects.all().delete()
+
+            if not rows:
+                print("⚠️ Mahotsav sheet खाली है")
+                return
+
+            new_rows = []
+
+            for row in rows:
+                crm_name = row.get("crm_name")
+                party_name = row.get("product_name")
+                mahotsav_dispatch_quantity = row.get("mahotsav_dispatch_quantity")
+
+                if not party_name:
+                    continue
+
+                new_rows.append(
+                    Mahotsav(
+                        crm_name=crm_name.strip(),
+                        party_name=party_name.strip(),
+                        mahotsav_dispatch_quantity=mahotsav_dispatch_quantity
+                    )
+                )
+
+            Mahotsav.objects.bulk_create(new_rows)
+
+        print(f"✅ Mahotsav sheet sync complete: {len(new_rows)} rows")
+
+    except Exception as e:
+        print(f"❌ Sync failed due to error: {e}")
+
