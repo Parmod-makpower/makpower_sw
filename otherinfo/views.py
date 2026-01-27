@@ -1,7 +1,7 @@
 # views.py
 from rest_framework import viewsets, permissions
-from .models import SamplingSheet, NotInStockReport
-from .serializers import SamplingSheetSerializer, NotInStoctSerializer
+from .models import SamplingSheet, NotInStockReport, Mahotsav
+from .serializers import SamplingSheetSerializer, NotInStoctSerializer, MahotsavSerializer
 
 class SamplingSheetViewSet(viewsets.ModelViewSet):
     queryset = SamplingSheet.objects.all().order_by("party_name")
@@ -30,3 +30,10 @@ class NotInStockViewSet(viewsets.ModelViewSet):
 
         # ❌ Baaki roles ko kuch nahi
         return qs.none()
+
+
+class MahotsavViewSet(viewsets.ModelViewSet):
+    queryset = Mahotsav.objects.all().order_by("party_name")
+    serializer_class = MahotsavSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
