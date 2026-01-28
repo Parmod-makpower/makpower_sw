@@ -539,7 +539,7 @@ def list_orders_by_role(request):
 
     # 🟦 Default limit (latest 50)
     if not (from_date or to_date or order_id or party_name):
-        orders = orders.order_by("-created_at")[:15]
+        orders = orders.order_by("-created_at")[:30]
     else:
         orders = orders.order_by("-created_at")
 
