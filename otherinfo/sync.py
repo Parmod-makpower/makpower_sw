@@ -29,8 +29,7 @@ def sync_sampling_sheet():
             for row in rows:
                 party_name = row.get("PARTY NAME")
                 items = row.get("Items")
-                mahotsav_dispatch_quantity = row.get("mahotsav_dispatch_quantity")
-
+               
                 if not party_name:
                     continue
 
@@ -41,7 +40,6 @@ def sync_sampling_sheet():
                     SamplingSheet(
                         party_name=party_name.strip(),
                         items=items.strip(),
-                        mahotsav_dispatch_quantity=mahotsav_dispatch_quantity
                     )
                 )
 
@@ -51,7 +49,6 @@ def sync_sampling_sheet():
 
     except Exception as e:
         print(f"❌ Sync failed due to error: {e}")
-
 
 
 def sync_not_in_stock():
@@ -114,10 +111,8 @@ def sync_not_in_stock():
         print(f"❌ NIA Sync failed: {e}")
 
 
-
 def sync_mahotsav_sheet():
     try:
-        # 🔒 पुरानी DB connections बंद करो
         connection.close()
 
         sheet = get_sheet(
@@ -125,10 +120,13 @@ def sync_mahotsav_sheet():
             sheet_name="MAHOTSAV_SHEET"
         )
 
-        rows = sheet.get_all_records()
+        rows = sheet.get_all_records(expected_headers=[
+            "crm_name",
+            "product_name",
+            "mahotsav_dispatch_quantity"
+        ])
 
         with transaction.atomic():
-            # ✅ पहले पूरा table clear
             Mahotsav.objects.all().delete()
 
             if not rows:
@@ -138,16 +136,18 @@ def sync_mahotsav_sheet():
             new_rows = []
 
             for row in rows:
-                crm_name = row.get("crm_name")
-                party_name = row.get("product_name")
-                mahotsav_dispatch_quantity = row.get("mahotsav_dispatch_quantity")
+                crm_name = row.get("crm_name", "")
+                party_name = row.get("product_name", "")
+                mahotsav_dispatch_quantity = row.get(
+                    "mahotsav_dispatch_quantity"
+                )
 
                 if not party_name:
                     continue
 
                 new_rows.append(
                     Mahotsav(
-                        crm_name=crm_name.strip(),
+                        crm_name=crm_name.strip() if crm_name else "",
                         party_name=party_name.strip(),
                         mahotsav_dispatch_quantity=mahotsav_dispatch_quantity
                     )
@@ -159,4 +159,3 @@ def sync_mahotsav_sheet():
 
     except Exception as e:
         print(f"❌ Sync failed due to error: {e}")
-
