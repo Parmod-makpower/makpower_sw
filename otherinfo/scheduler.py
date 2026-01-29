@@ -11,6 +11,6 @@ def start():
     scheduler.add_job(sync_not_in_stock, 'interval', hours=6)
 
     # Not In Stock → 6 hours
-    scheduler.add_job(sync_mahotsav_sheet, 'interval', minutes=5)
+    scheduler.add_job(sync_mahotsav_sheet, 'interval', hours=2)
 
     scheduler.start()
