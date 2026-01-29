@@ -123,7 +123,10 @@ def sync_mahotsav_sheet():
         rows = sheet.get_all_records(expected_headers=[
             "crm_name",
             "product_name",
-            "mahotsav_dispatch_quantity"
+            "mahotsav_dispatch_quantity",
+            "gas_stove",
+            "kitchen_cookware",
+            "dinner_set",
         ])
 
         with transaction.atomic():
@@ -138,9 +141,10 @@ def sync_mahotsav_sheet():
             for row in rows:
                 crm_name = row.get("crm_name", "")
                 party_name = row.get("product_name", "")
-                mahotsav_dispatch_quantity = row.get(
-                    "mahotsav_dispatch_quantity"
-                )
+                mahotsav_dispatch_quantity = row.get("mahotsav_dispatch_quantity")
+                gas_stove = row.get("gas_stove")
+                kitchen_cookware = row.get("kitchen_cookware")
+                dinner_set = row.get("dinner_set")
 
                 if not party_name:
                     continue
@@ -149,7 +153,10 @@ def sync_mahotsav_sheet():
                     Mahotsav(
                         crm_name=crm_name.strip() if crm_name else "",
                         party_name=party_name.strip(),
-                        mahotsav_dispatch_quantity=mahotsav_dispatch_quantity
+                        mahotsav_dispatch_quantity=mahotsav_dispatch_quantity,
+                        gas_stove=gas_stove,
+                        kitchen_cookware=kitchen_cookware,
+                        dinner_set=dinner_set
                     )
                 )
 
