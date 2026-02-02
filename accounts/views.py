@@ -113,20 +113,6 @@ class UserHierarchyView(APIView):
         else:
             return Response({'detail': 'Unauthorized'}, status=403)
 
-
-# class SSUserViewSet(viewsets.ModelViewSet):
-#     serializer_class = SSUserSerializer
-
-#     def get_queryset(self):
-#         user = self.request.user
-
-#         # Admin → sab users
-#         if user.role == "ADMIN":
-#             return CustomUser.objects.all()
-
-#         # CRM → uske banaye users
-#         return CustomUser.objects.filter(crm=user)
-
  
 class SSUserViewSet(viewsets.ModelViewSet):
     serializer_class = SSUserSerializer

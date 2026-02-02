@@ -14,6 +14,12 @@ USER_ROLES = (
     ('DS', 'Distributor'),
 )
 
+STOCK_LOCATIONS = (
+    ('DELHI', 'Delhi Stock'),
+    ('MUMBAI', 'Mumbai Stock'),
+)
+
+
 def generate_user_id(role, last_id):
     prefix = {'ADMIN': 'AD', 'CRM': 'CRM', 'ASM': 'ASM', 'SS': 'SS', 'DS': 'DS'}
     return f"{prefix[role]}{str(last_id + 1).zfill(4)}"
@@ -69,6 +75,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     user_id = models.CharField(max_length=20, unique=True)
     mobile = models.CharField(max_length=15, unique=True, validators=[mobile_validator])  # ✅ Added validator
     role = models.CharField(max_length=10, choices=USER_ROLES, db_index=True)
+    stock_location = models.CharField(max_length=10, choices=STOCK_LOCATIONS, default='DELHI',  db_index=True)
+
 
     name = models.CharField(max_length=100, blank=True, null=True) 
     party_name = models.CharField(max_length=150, blank=True, null=True, db_index=True)  

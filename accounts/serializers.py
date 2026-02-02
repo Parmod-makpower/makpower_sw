@@ -5,7 +5,7 @@ from .models import CustomUser
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ['id', 'user_id','name', 'party_name','mobile', 'role', 'crm', 'ss', 'is_active', 'created_at']
+        fields = "__all__"
 
 
 class SSUserSerializer(serializers.ModelSerializer):
@@ -15,7 +15,7 @@ class SSUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = [
-            'id', 'role', 'user_id', 'mobile', 'password', 'name', 'crm', 'crm_name',
+            'id', 'role', 'user_id', 'stock_location', 'mobile', 'password', 'name', 'crm', 'crm_name',
             'party_name', 'is_active', 'created_at', 'created_by'
         ]
         read_only_fields = ['user_id', 'created_at']
