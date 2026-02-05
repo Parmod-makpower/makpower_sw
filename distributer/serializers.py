@@ -9,15 +9,7 @@ class DSOrderItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DSOrderItem
-        fields = [
-            "id",
-            "product",
-            "product_name",
-            "quantity",
-            "price",
-            "ds_virtual_stock",
-            "is_scheme_item",
-        ]
+        fields = "__all__"
 
 
 class DSOrderSerializer(serializers.ModelSerializer):
@@ -31,15 +23,15 @@ class DSOrderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DSOrder
-        fields = [
-            "id",
-            "order_id",
-            "ds_user",
-            "ds_user_name",
-            "ds_party_name",
-            "total_amount",
-            "status",
-            "created_at",
-            "items",
-        ]
+        fields = "__all__"
   
+class DSOrderSerializerTrack(serializers.ModelSerializer):
+    ds_name = serializers.CharField(source='ds_user.party_name', read_only=True)
+    crm_name = serializers.CharField(source='assigned_crm.name', read_only=True)
+
+    class Meta:
+        model = DSOrder
+        fields = [
+            'id', 'order_id', 'ds_name', 'crm_name', 'created_at'
+        ]
+
