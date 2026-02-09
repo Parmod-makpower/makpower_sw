@@ -62,7 +62,7 @@ class CRMVerifiedOrder(models.Model):
         ordering = ["-verified_at"]
 
     def __str__(self):
-        return f"ID:  {self.id}  =>  {self.original_order} - {self.dispatch_location}"
+        return f"ID:  {self.id}   =>  {self.original_order} - {self.dispatch_location}"
 
 
 class CRMVerifiedOrderItem(models.Model):
