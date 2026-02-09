@@ -269,6 +269,7 @@ def export_products_excel(request):
         "Guarantee",
         "Price",
         "MOQ",
+        "quantity_type",
         "Rack",
         "Active"
     ]
@@ -285,6 +286,7 @@ def export_products_excel(request):
             p.guarantee or "",
             p.price or "",
             p.moq or "",
+            p.quantity_type or "",
             p.rack_no or "",
             "Yes" if p.is_active else "No",
         ])
