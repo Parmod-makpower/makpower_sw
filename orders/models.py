@@ -62,7 +62,7 @@ class CRMVerifiedOrder(models.Model):
         ordering = ["-verified_at"]
 
     def __str__(self):
-        return f"ID:  {self.id}  -  {self.original_order} - {self.total_amount}"
+        return f"ID:  {self.id}  =>  {self.original_order} - {self.dispatch_location}"
 
 
 class CRMVerifiedOrderItem(models.Model):
@@ -74,7 +74,7 @@ class CRMVerifiedOrderItem(models.Model):
     is_rejected = models.BooleanField(default=False, db_index=True)
 
     def __str__(self):
-        return f"{self.product} - {self.quantity}"
+        return f"ID :  {self.id} =>  {self.product} - {self.quantity} : {self.is_rejected}"
 
 class DispatchOrder(models.Model):
     order_id = models.CharField(max_length=20, db_index=True)
