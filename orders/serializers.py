@@ -223,6 +223,7 @@ class CombinedOrderTrackSerializer(serializers.ModelSerializer):
             {
                 "product": d.product,
                 "quantity": d.quantity,
+                "order_packed_time": d.order_packed_time,
             }
             for d in dispatch_items
         ]

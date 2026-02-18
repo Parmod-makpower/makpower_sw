@@ -51,8 +51,6 @@ class CRMVerifiedOrder(models.Model):
     punched = models.BooleanField(default=False, db_index=True)
     dispatch_location = models.CharField(max_length=50, default="Delhi", db_index=True)  # 🆕 Added
 
-
-
     class Meta:
         indexes = [
             models.Index(fields=["crm_user", "verified_at"]),
