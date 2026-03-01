@@ -53,7 +53,7 @@ def sync_sampling_sheet():
 
 def sync_not_in_stock():
     try:
-        # 🔒 Old DB connections close
+        # 🔒 Close old DB connections
         connection.close()
 
         sheet = get_sheet(
@@ -64,16 +64,23 @@ def sync_not_in_stock():
         rows = sheet.get_all_records()
 
         if not rows:
-            print("⚠️ NIA sheet खाली है")
+            print("⚠️ NIS sheet खाली है")
             return
 
         objects = []
 
         with transaction.atomic():
-            # ✅ पहले पूरा table clear (fast & safe)
+            # 🗑️ Step 1: पहले पूरा table delete
             NotInStockReport.objects.all().delete()
 
+            # 🔁 Step 2: Fresh data insert
             for row in rows:
+
+                # 🔎 Skip if Valid Check = "No"
+                valid_check = str(row.get("Valid check", "")).strip().lower()
+                if valid_check == "no":
+                    continue
+
                 product = row.get("Item Name")
                 original_qty = row.get("Original")
                 date_value = row.get("Date")
@@ -81,13 +88,13 @@ def sync_not_in_stock():
                 order_no = row.get("Order No.")
                 balance_qty = row.get("Balance qty")
 
-                # ❌ Mandatory check
+                # ❌ Mandatory field check
                 if not product or not party_name or not order_no:
                     continue
 
                 # 📅 Date convert (sheet → Django)
                 try:
-                    date_value = datetime.strptime(date_value, "%d/%m/%Y").date()
+                    date_value = datetime.strptime(str(date_value), "%d/%m/%Y").date()
                 except Exception:
                     continue
 
@@ -102,13 +109,14 @@ def sync_not_in_stock():
                     )
                 )
 
-            # 🚀 Bulk insert (20k+ rows fast)
-            NotInStockReport.objects.bulk_create(objects, batch_size=1000)
+            # 🚀 Bulk insert (Fast insertion)
+            if objects:
+                NotInStockReport.objects.bulk_create(objects, batch_size=1000)
 
-        print(f"✅ Not In Stock sync complete: {len(objects)} rows")
+        print(f"✅ Not In Stock sync complete: {len(objects)} rows inserted")
 
     except Exception as e:
-        print(f"❌ NIA Sync failed: {e}")
+        print(f"❌ NIS Sync failed: {e}")
 
 
 def sync_mahotsav_sheet():
