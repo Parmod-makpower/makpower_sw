@@ -244,6 +244,10 @@ def get_virtual_stock(request):
     products = Product.objects.filter(is_active=True).values("product_id", "virtual_stock")
     return Response(products)
 
+@api_view(['GET'])
+def get_mumbai_stock(request):
+    products = Product.objects.filter(is_active=True).values("product_id", "mumbai_stock")
+    return Response(products)
 
 @api_view(['GET'])
 def get_inactive_products(request):
