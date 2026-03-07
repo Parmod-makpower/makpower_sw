@@ -225,17 +225,10 @@ class SchemeViewSet(viewsets.ModelViewSet):
 
 @api_view(['GET'])
 def get_all_products_with_salenames(request):
-    products = Product.objects.filter(is_active=True).prefetch_related('sale_names').order_by('product_id')
+    products = Product.objects.prefetch_related('sale_names').order_by('product_id')
     
     serializer = ProductWithSaleNameSerializer(products, many=True, context={"request": request})
     
-    return Response(serializer.data)
-
-
-@api_view(['GET'])
-def get_all_products(request):
-    products = Product.objects.all().order_by('product_id')  # active + inactive both
-    serializer = ProductSerializer(products, many=True)
     return Response(serializer.data)
 
 
