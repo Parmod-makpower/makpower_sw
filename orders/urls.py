@@ -1,6 +1,6 @@
 
 from django.urls import path
-from .views import SSOrderCreateView, CRMOrderListView, CRMOrderVerifyView,CRMVerifiedOrderHistoryView, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderBulkDeleteView, AddItemToCRMVerifiedOrderView, CRMVerifiedItemUpdateView, CRMVerifiedItemDeleteView, hold_order, reject_order, CombinedOrderTrackView, list_orders_by_role, submit_meet_form, submit_dealer_list,DeleteAllDispatchOrders, SimpleSSOrderCreateView,DispatchOrderListView, UploadDispatchExcel, DownloadDispatchExcel, DeleteSelectedDispatchOrders
+from .views import SSOrderCreateView, CRMOrderListView, CRMOrderVerifyView,FinalOrderHistoryView, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderBulkDeleteView, AddItemToCRMVerifiedOrderView, CRMVerifiedItemUpdateView, CRMVerifiedItemDeleteView, hold_order, reject_order, CombinedOrderTrackView, list_orders_by_role, submit_meet_form, submit_dealer_list,DeleteAllDispatchOrders, SimpleSSOrderCreateView,DispatchOrderListView, UploadDispatchExcel, DownloadDispatchExcel, DeleteSelectedDispatchOrders, FinalOrderDetailsView
 
 
 urlpatterns = [
@@ -10,7 +10,10 @@ urlpatterns = [
     path("crm/orders/bulk-delete/", CRMOrderBulkDeleteView.as_view(), name="crm-order-bulk-delete"),
     path("crm/orders/", CRMOrderListView.as_view(), name="crm-orders-list"),
     path("crm/orders/<int:order_id>/verify/", CRMOrderVerifyView.as_view(), name="crm-order-verify"),
-    path("crm/verified/", CRMVerifiedOrderHistoryView.as_view(), name="crm-verified-list"),
+    # history------------
+    path("crm/orders-history/", FinalOrderHistoryView.as_view(), name="crm-verified-list"),
+    path("final/order-details/<str:order_id>/", FinalOrderDetailsView.as_view()),
+
     path("crm/verified/<int:pk>/status/", UpdateOrderStatusView.as_view(), name="crm-verified-status"),
     path("crm/verified/<int:pk>/add-item/", AddItemToCRMVerifiedOrderView.as_view(), name="add-item-crm-verified"),
     path("crm/verified/item/<int:pk>/update/", CRMVerifiedItemUpdateView.as_view(), name="crm-verified-item-update"),

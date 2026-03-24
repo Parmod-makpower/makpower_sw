@@ -46,8 +46,7 @@ class CRMVerifiedOrder(models.Model):
         choices=[('APPROVED', 'Approved'), ('REJECTED', 'Rejected'), ('HOLD', 'Hold')],
         db_index=True,
         )
-    notes = models.TextField(blank=True, null=True)
-    total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+   
     punched = models.BooleanField(default=False, db_index=True)
     dispatch_location = models.CharField(max_length=50, default="Delhi", db_index=True)  # 🆕 Added
 
@@ -67,12 +66,12 @@ class CRMVerifiedOrderItem(models.Model):
     crm_order = models.ForeignKey(CRMVerifiedOrder, on_delete=models.CASCADE, related_name='items', db_index=True)
     product = models.ForeignKey(Product, on_delete=models.CASCADE, db_index=True)
     quantity = models.PositiveIntegerField()
-    price = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     ss_virtual_stock = models.PositiveIntegerField(default=0)
     is_rejected = models.BooleanField(default=False, db_index=True)
 
     def __str__(self):
         return f"ID :  {self.id} =>  {self.product} - {self.quantity} : {self.is_rejected}"
+
 
 class DispatchOrder(models.Model):
     order_id = models.CharField(max_length=20, db_index=True)

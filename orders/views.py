@@ -1,13 +1,14 @@
 from rest_framework.views import APIView
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from rest_framework.generics import RetrieveAPIView
 from rest_framework import status
 from rest_framework import status as drf_status
 from django.db import transaction
 from django.db.models import Q
 from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder, Product, DispatchOrder
 from django.contrib.auth import get_user_model
-from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, CRMVerifiedOrderListSerializer, CombinedOrderTrackSerializer, SSOrderSerializerTrack, DispatchOrderSerializer
+from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, VerifiedOrderHistorysSerializer , VerifiedOrderDetailsSerializer, CombinedOrderTrackSerializer, SSOrderSerializerTrack, DispatchOrderSerializer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import ListAPIView
 from django.shortcuts import get_object_or_404
@@ -324,8 +325,6 @@ class CRMOrderVerifyView(APIView):
                     original_order=original_order,
                     crm_user=crm_user,
                     status=data["status"],
-                    notes=data.get("notes", ""),
-                    total_amount=data.get("total_amount", 0),
                     dispatch_location=data.get("dispatch_location"),
                 )
 
@@ -335,7 +334,6 @@ class CRMOrderVerifyView(APIView):
                     i.product.product_id: {
                         "product_obj": i.product,
                         "quantity": i.quantity,
-                        "price": i.price,
                         "ss_virtual_stock": i.ss_virtual_stock,
                     }
                     for i in ss_items
@@ -348,7 +346,6 @@ class CRMOrderVerifyView(APIView):
                             crm_order=crm_order,
                             product=info["product_obj"],
                             quantity=info["quantity"],
-                            price=Decimal(info.get("price") or 0),
                             ss_virtual_stock=info.get("ss_virtual_stock", 0),
                             is_rejected=True,
                         )
@@ -380,12 +377,7 @@ class CRMOrderVerifyView(APIView):
 
                         ss_item = SSOrderItem.objects.filter(order=original_order, product=product).first()
 
-                        # Safe price conversion
-                        raw_price = item.get("price", 0)
-                        try:
-                            price_value = Decimal(raw_price) if raw_price not in [None, "", "null"] else Decimal(0)
-                        except (InvalidOperation, TypeError, ValueError):
-                            price_value = Decimal(0)
+                       
 
                         # ✅ अगर SSOrderItem नहीं मिला, तो product.virtual_stock का इस्तेमाल करो
                         if ss_item:
@@ -397,7 +389,7 @@ class CRMOrderVerifyView(APIView):
                             crm_order=crm_order,
                             product=product,
                             quantity=qty,
-                            price=price_value,
+                           
                             ss_virtual_stock=ss_virtual_stock_value,
                             is_rejected=False,
                         )
@@ -407,12 +399,10 @@ class CRMOrderVerifyView(APIView):
                     deleted_products = set(ss_map.keys()) - kept_products
                     for pid in deleted_products:
                         info = ss_map[pid]
-                        price_value = Decimal(info.get("price") or 0)
                         CRMVerifiedOrderItem.objects.create(
                             crm_order=crm_order,
                             product=info["product_obj"],
                             quantity=info["quantity"],
-                            price=price_value,
                             ss_virtual_stock=info.get("ss_virtual_stock", 0),
                             is_rejected=True,
                         )
@@ -568,9 +558,9 @@ class CombinedOrderTrackView(APIView):
         return Response(data, status=200)
 
 
-class CRMVerifiedOrderHistoryView(ListAPIView):
+class FinalOrderHistoryView(ListAPIView):
     permission_classes = [IsAuthenticated]
-    serializer_class = CRMVerifiedOrderListSerializer
+    serializer_class = VerifiedOrderHistorysSerializer
 
     def get_queryset(self):
         user = self.request.user
@@ -581,24 +571,64 @@ class CRMVerifiedOrderHistoryView(ListAPIView):
             "crm_user"
         )
 
+        # ✅ User restriction
         if not user.is_staff and not user.is_superuser:
             qs = qs.filter(crm_user=user)
 
+        # ✅ Query params
         q = self.request.query_params.get("q")
-        punched_param = self.request.query_params.get("punched")
+        party = self.request.query_params.get("party")
+        punched = self.request.query_params.get("punched")
+        from_date = self.request.query_params.get("from_date")
+        to_date = self.request.query_params.get("to_date")
 
+        # ✅ Search (order id / order code)
         if q:
             qs = qs.filter(
-                Q(id__icontains=q) |                          # 9898
-                Q(original_order__order_id__icontains=q)      # ORD-6CF49D38
+                Q(id__icontains=q) |
+                Q(original_order__order_id__icontains=q)
             )
 
-        if punched_param is not None:
-            qs = qs.filter(punched=(punched_param.lower() == "true"))
-        else:
-            qs = qs.filter(punched=False)
+        # ✅ Party filter
+        if party:
+            qs = qs.filter(
+                original_order__ss_user__party_name__icontains=party
+            )
 
-        return qs.order_by("-verified_at")[:10]
+        # ✅ Date filter
+        if from_date and to_date:
+            qs = qs.filter(
+                verified_at__date__range=[from_date, to_date]
+            )
+
+        # ✅ punched filter
+        if punched is not None:
+            qs = qs.filter(punched=(punched.lower() == "true"))
+
+        # ✅ Always latest first
+        return qs.order_by("-verified_at")[:50]  # max 50 records
+
+class FinalOrderDetailsView(RetrieveAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = VerifiedOrderDetailsSerializer
+
+    def get_object(self):
+        user = self.request.user
+        order_id = self.kwargs.get("order_id")  # ✅ URL se lo
+
+        qs = CRMVerifiedOrder.objects.select_related(
+            "original_order",
+            "original_order__ss_user",
+            "crm_user"
+        ).prefetch_related("items")
+
+        if not user.is_staff and not user.is_superuser:
+            qs = qs.filter(crm_user=user)
+
+        return get_object_or_404(qs, id=order_id)  # ✅ ID search
+
+
+
 
 
 class UpdateOrderStatusView(APIView):
@@ -709,7 +739,6 @@ class AddItemToCRMVerifiedOrderView(APIView):
 
         product_id = request.data.get("product_id")
         raw_qty = request.data.get("quantity")
-        raw_price = request.data.get("price", 0)
 
         if not product_id or not raw_qty:
             return Response(
@@ -723,11 +752,6 @@ class AddItemToCRMVerifiedOrderView(APIView):
         except (TypeError, ValueError):
             return Response({"error": "Invalid quantity."}, status=400)
 
-        # ✅ SAFE price (🔥 MAIN FIX)
-        try:
-            price = Decimal(raw_price)
-        except (InvalidOperation, TypeError):
-            price = Decimal("0")
 
         product = get_object_or_404(Product, product_id=product_id)
 
@@ -748,13 +772,8 @@ class AddItemToCRMVerifiedOrderView(APIView):
             crm_order=crm_order,
             product=product,
             quantity=quantity,
-            price=price,   # 🔥 ALWAYS Decimal 0 or valid
             ss_virtual_stock=ss_stock if ss_stock > 0 else virtual_stock
         )
-
-        # ✅ Total calculation safe
-        crm_order.total_amount += price * Decimal(quantity)
-        crm_order.save(update_fields=["total_amount"])
 
         return Response(
             {
@@ -762,7 +781,6 @@ class AddItemToCRMVerifiedOrderView(APIView):
                 "item_id": new_item.id,
                 "product_name": product.product_name,
                 "quantity": quantity,
-                "price": price,
             },
             status=201
         )

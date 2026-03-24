@@ -106,7 +106,7 @@ class CRMVerifiedOrderItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CRMVerifiedOrderItem
-        fields = ['id', 'product', 'product_name', 'quantity', 'price', 'is_rejected']
+        fields = ['id', 'product', 'product_name', 'quantity', 'is_rejected']
 
 
 class CRMVerifiedOrderSerializer(serializers.ModelSerializer):
@@ -118,7 +118,7 @@ class CRMVerifiedOrderSerializer(serializers.ModelSerializer):
         model = CRMVerifiedOrder
         fields = [
             'id', 'order_id', 'original_order', 'crm_user', 'crm_name',
-            'verified_at', 'status', 'notes', 'total_amount', 'items'
+            'verified_at', 'status',  'items'
         ]
 
 # ⚡️ Lightweight list serializer for history page (fast)
@@ -127,10 +127,22 @@ class CRMVerifiedOrderItemLiteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CRMVerifiedOrderItem
-        fields = ['id', 'product', 'product_name', 'quantity','ss_virtual_stock', 'price']  # 👈 is_rejected हटाया
+        fields = ['id', 'product', 'product_name', 'quantity','ss_virtual_stock']  # 👈 is_rejected हटाया
 
 
-class CRMVerifiedOrderListSerializer(serializers.ModelSerializer):
+class VerifiedOrderHistorysSerializer(serializers.ModelSerializer):
+    order_id = serializers.CharField(source='original_order.order_id', read_only=True)
+    ss_party_name = serializers.CharField(source='original_order.ss_user.party_name', read_only=True)
+    crm_name = serializers.CharField(source='crm_user.name', read_only=True)
+    punched = serializers.BooleanField(read_only=True)
+    ss_order_created_at = serializers.DateTimeField(source='original_order.created_at', read_only=True)
+
+    class Meta:
+        model = CRMVerifiedOrder
+        fields = ['id', 'order_id', 'ss_party_name', 'punched', 'crm_name', 'ss_order_created_at', 'verified_at',]
+
+
+class VerifiedOrderDetailsSerializer(serializers.ModelSerializer):
     order_id = serializers.CharField(source='original_order.order_id', read_only=True)
     ss_party_name = serializers.CharField(source='original_order.ss_user.party_name', read_only=True)
     ss_user_name = serializers.CharField(source='original_order.ss_user.name', read_only=True)
@@ -145,7 +157,7 @@ class CRMVerifiedOrderListSerializer(serializers.ModelSerializer):
         model = CRMVerifiedOrder
         fields = [
             'id', 'order_id', 'ss_party_name', 'ss_user_name', 'crm_name','ss_order_created_at',
-            'verified_at', 'status','notes', 'total_amount', 'items','punched','dispatch_location'
+            'verified_at', 'status', 'items','punched','dispatch_location'
         ]
 
     def get_items(self, obj):
@@ -157,6 +169,7 @@ class CRMVerifiedOrderListSerializer(serializers.ModelSerializer):
             obj.items.filter(is_rejected=False).select_related("product"),
             many=True
         ).data
+
 
 
 class CombinedOrderTrackSerializer(serializers.ModelSerializer):
@@ -199,15 +212,12 @@ class CombinedOrderTrackSerializer(serializers.ModelSerializer):
         return {
             "crm_user": crm_record.crm_user.name,
             "status": crm_record.status,
-            "notes": crm_record.notes,
-            "total_amount": crm_record.total_amount,
             "verified_at": crm_record.verified_at,
             "items": [
                 {
                     "product_id": i.product.product_id,
                     "product_name": i.product.product_name,
                     "quantity": i.quantity,
-                    "price": i.price,
                     "is_rejected": i.is_rejected,
                 }
                 for i in crm_record.items.all()
