@@ -130,6 +130,8 @@ class CRMVerifiedOrderItemLiteSerializer(serializers.ModelSerializer):
         fields = ['id', 'product', 'product_name', 'quantity','ss_virtual_stock']  # 👈 is_rejected हटाया
 
 
+
+# After Verify Serializers ------------------
 class VerifiedOrderHistorysSerializer(serializers.ModelSerializer):
     order_id = serializers.CharField(source='original_order.order_id', read_only=True)
     ss_party_name = serializers.CharField(source='original_order.ss_user.party_name', read_only=True)
@@ -140,7 +142,6 @@ class VerifiedOrderHistorysSerializer(serializers.ModelSerializer):
     class Meta:
         model = CRMVerifiedOrder
         fields = ['id', 'order_id', 'ss_party_name', 'punched', 'crm_name', 'ss_order_created_at', 'verified_at',]
-
 
 class VerifiedOrderDetailsSerializer(serializers.ModelSerializer):
     order_id = serializers.CharField(source='original_order.order_id', read_only=True)

@@ -13,7 +13,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import ListAPIView
 from django.shortcuts import get_object_or_404
 from .utils import send_whatsapp_template
-from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from orders.models import PendingOrderItemSnapshot
 from products.utils import recalculate_virtual_stock
@@ -34,6 +33,7 @@ import logging
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
+# Order Create----------
 
 class SSOrderCreateView(APIView):
     def post(self, request):
@@ -153,7 +153,6 @@ class SSOrderCreateView(APIView):
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-
 class SimpleSSOrderCreateView(APIView):
     """
     Only creates empty order
@@ -201,75 +200,7 @@ class SimpleSSOrderCreateView(APIView):
             )
 
 
-@api_view(['POST'])
-def hold_order(request, order_id):
-    try:
-        crm_user = request.user
-        order = get_object_or_404(SSOrder, id=order_id, assigned_crm=crm_user)
-
-        # वो snapshots लो जो पहले order verify/forward होने पर बने थे
-        pending_snapshots = PendingOrderItemSnapshot.objects.filter(order=order)
-        affected_products = [snap.product for snap in pending_snapshots]
-
-        with transaction.atomic():
-
-            # ✅ पहले snapshots delete — ये stock restore का trigger है
-            pending_snapshots.delete()
-
-            # ✅ हर product का virtual stock दोबारा calculate
-            for p in set(affected_products):
-                recalculate_virtual_stock(p)
-
-            # ✅ Order status update
-            order.status = "HOLD"
-            order.notes = request.data.get("notes", order.notes)
-            order.save()
-
-        return Response(
-            {"message": "Order put on HOLD and stock restored."},
-            status=200
-        )
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return Response({"error": str(e)}, status=400)
-
-
-@api_view(['POST'])
-def reject_order(request, order_id):
-    try:
-        crm_user = request.user
-        order = get_object_or_404(SSOrder, id=order_id, assigned_crm=crm_user)
-
-        # वो snapshots लो जो पहले order verify/forward होने पर बने थे
-        pending_snapshots = PendingOrderItemSnapshot.objects.filter(order=order)
-        affected_products = [snap.product for snap in pending_snapshots]
-
-        with transaction.atomic():
-
-            # ✅ पहले snapshots delete — ये stock restore का trigger है
-            pending_snapshots.delete()
-
-            # ✅ हर product का virtual stock दोबारा calculate
-            for p in set(affected_products):
-                recalculate_virtual_stock(p)
-
-            # ✅ Order status update
-            order.status = "REJECTED"
-            order.notes = request.data.get("notes", order.notes)
-            order.save()
-
-        return Response(
-            {"message": "Order  Reject and stock restored."},
-            status=200
-        )
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return Response({"error": str(e)}, status=400)
-
+# Order Details Page --------------
 
 class CRMOrderListView(ListAPIView):
     serializer_class = SS_to_CRM_Orders
@@ -299,7 +230,6 @@ class CRMOrderListView(ListAPIView):
 
         # 🔹 CRM → only assigned orders
         return base_queryset.filter(assigned_crm=user)[:25]
-
 
 class CRMOrderVerifyView(APIView):
     permission_classes = [IsAuthenticated]
@@ -447,116 +377,8 @@ class CRMOrderVerifyView(APIView):
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-class CRMOrderBulkDeleteView(APIView):
-    permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        user = request.user
-        order_ids = request.data.get("order_ids", [])
-
-        # ✅ ONLY ADMIN CAN DELETE
-        if user.role != "ADMIN":
-            return Response(
-                {"error": "You are not allowed to delete orders."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        if not order_ids:
-            return Response(
-                {"error": "No orders selected"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # ✅ ADMIN can delete ANY order
-        orders = SSOrder.objects.filter(id__in=order_ids)
-
-        if not orders.exists():
-            return Response(
-                {"error": "No valid orders found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        affected_products = []
-
-        with transaction.atomic():
-            for order in orders:
-                snapshots = PendingOrderItemSnapshot.objects.filter(order=order)
-                affected_products.extend([s.product for s in snapshots])
-                snapshots.delete()
-                order.delete()
-
-            # ✅ Recalculate stock once per product
-            for product in set(affected_products):
-                recalculate_virtual_stock(product)
-
-        return Response(
-            {"message": f"{orders.count()} orders permanently deleted"},
-            status=status.HTTP_200_OK
-        )
-
-
-
-@api_view(["GET"])
-def list_orders_by_role(request):
-    user = request.user
-    order_id = request.GET.get("order_id")
-    party_name = request.GET.get("party_name")
-    from_date = request.GET.get("from_date")
-    to_date = request.GET.get("to_date")
-
-    # 🟦 Base Query
-    if user.role == "ADMIN":
-        orders = SSOrder.objects.all()
-    elif user.role == "CRM":
-        orders = SSOrder.objects.filter(assigned_crm=user)
-    elif user.role == "SS":
-        orders = SSOrder.objects.filter(ss_user=user)
-    else:
-        orders = SSOrder.objects.none()
-
-    # 🟦 Filters
-    if order_id:
-        orders = orders.filter(order_id__icontains=order_id)
-
-    if party_name:
-        orders = orders.filter(ss_user__party_name__icontains=party_name)
-
-    if from_date:
-        orders = orders.filter(created_at__date__gte=from_date)
-
-    if to_date:
-        orders = orders.filter(created_at__date__lte=to_date)
-
-    # 🟦 Default limit (latest 50)
-    if not (from_date or to_date or order_id or party_name):
-        orders = orders.order_by("-created_at")[:30]
-    else:
-        orders = orders.order_by("-created_at")
-
-    serializer = SSOrderSerializerTrack(orders, many=True)
-    return Response(serializer.data)
-
-
-class CombinedOrderTrackView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, order_id):
-        user = request.user
-
-        try:
-            order = SSOrder.objects.get(order_id=order_id)
-        except SSOrder.DoesNotExist:
-            return Response({"error": "Order not found"}, status=404)
-
-        # ✅ CRM apne assigned orders hi dekhega
-        if not (user.is_staff or user.is_superuser):
-            if order.assigned_crm != user and order.ss_user != user:
-                return Response({"error": "Not authorized"}, status=403)
-
-
-        data = CombinedOrderTrackSerializer(order).data
-        return Response(data, status=200)
-
+# After Verify Order --------
 
 class FinalOrderHistoryView(ListAPIView):
     permission_classes = [IsAuthenticated]
@@ -627,110 +449,6 @@ class FinalOrderDetailsView(RetrieveAPIView):
 
         return get_object_or_404(qs, id=order_id)  # ✅ ID search
 
-
-
-
-
-class UpdateOrderStatusView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def patch(self, request, pk):
-        crm_order = get_object_or_404(CRMVerifiedOrder, pk=pk)
-        new_status = request.data.get("status")
-        notes = request.data.get("notes")
-
-        if new_status not in ["HOLD", "APPROVED", "REJECTED"]:
-            return Response({"detail": "Invalid status"}, status=drf_status.HTTP_400_BAD_REQUEST)
-
-        crm_order.status = new_status
-        crm_order.notes = notes if new_status in ["HOLD", "REJECTED"] else None
-        crm_order.save(update_fields=["status", "notes"])
-
-        ss_order = crm_order.original_order
-        ss_order.status = new_status
-        ss_order.notes = notes if new_status in ["HOLD", "REJECTED"] else None
-        ss_order.save(update_fields=["status", "notes"])
-
-        return Response({
-            "detail": "Status updated successfully",
-            "status": new_status,
-            "notes": crm_order.notes
-        })
-
-@api_view(['POST'])
-def punch_order_to_sheet(request):
-    try:
-        data = request.data
-
-        order_id = data.get("order_id")
-        ss_party_name = data.get("ss_party_name")
-        crm_name = data.get("crm_name")
-        ss_id = data.get("id")
-        dispatch_location = data.get("dispatch_location", "")
-        items = data.get("items", [])
-        is_single_row = data.get("is_single_row", False)
-
-        if not order_id or not items:
-            return Response({"error": "Missing order_id or items"}, status=400)
-
-        # 🔐 Bulk punch only → prevent double punch
-        order_obj = None
-        if not is_single_row:
-            order_obj = CRMVerifiedOrder.objects.filter(
-                original_order__order_id=order_id,
-                punched=False
-            ).first()
-
-            if not order_obj:
-                return Response(
-                    {"error": "Order already punched"},
-                    status=400
-                )
-
-        ist_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        rows = [
-            [
-                item.get("product_name", ""),
-                int(item.get("quantity", 0)),
-                ss_party_name,
-                ss_id,
-                crm_name,
-                item.get("id", ""),
-                ist_timestamp,
-                order_id,
-                dispatch_location,
-            ]
-            for item in items
-        ]
-
-        # ✅ Always write to sheet
-        write_to_sheet(
-            settings.SHEET_ID_NEW,
-            "order_data_from_app",
-            rows
-        )
-
-        # ✅ Mark punched ONLY for bulk punch
-        if not is_single_row and order_obj:
-            order_obj.punched = True
-            order_obj.dispatch_location = dispatch_location
-            order_obj.save(update_fields=["punched", "dispatch_location"])
-
-        return Response({
-            "success": True,
-            "message": f"{len(rows)} rows punched successfully",
-            "single_row": is_single_row
-        })
-
-    except Exception as e:
-        logger.error("🚨 Error in punch_order_to_sheet", exc_info=True)
-        return Response(
-            {"success": False, "error": str(e)},
-            status=500
-        )
-
-
 class AddItemToCRMVerifiedOrderView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -784,6 +502,288 @@ class AddItemToCRMVerifiedOrderView(APIView):
             },
             status=201
         )
+
+@api_view(['POST'])
+def punch_order_to_sheet(request):
+    try:
+        data = request.data
+
+        order_id = data.get("order_id")
+        ss_party_name = data.get("ss_party_name")
+        crm_name = data.get("crm_name")
+        ss_id = data.get("id")
+        dispatch_location = data.get("dispatch_location", "")
+        items = data.get("items", [])
+        is_single_row = data.get("is_single_row", False)
+
+        if not order_id or not items:
+            return Response({"error": "Missing order_id or items"}, status=400)
+
+        # 🔐 Bulk punch only → prevent double punch
+        order_obj = None
+        if not is_single_row:
+            order_obj = CRMVerifiedOrder.objects.filter(
+                original_order__order_id=order_id,
+                punched=False
+            ).first()
+
+            if not order_obj:
+                return Response(
+                    {"error": "Order already punched"},
+                    status=400
+                )
+
+        ist_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        rows = [
+            [
+                item.get("product_name", ""),
+                int(item.get("quantity", 0)),
+                ss_party_name,
+                ss_id,
+                crm_name,
+                item.get("id", ""),
+                ist_timestamp,
+                order_id,
+                dispatch_location,
+            ]
+            for item in items
+        ]
+
+        # ✅ Always write to sheet
+        write_to_sheet(
+            settings.SHEET_ID_NEW,
+            "abc",
+            rows
+        )
+
+        # ✅ Mark punched ONLY for bulk punch
+        if not is_single_row and order_obj:
+            order_obj.punched = True
+            order_obj.dispatch_location = dispatch_location
+            order_obj.save(update_fields=["punched", "dispatch_location"])
+
+        return Response({
+            "success": True,
+            "message": f"{len(rows)} rows punched successfully",
+            "single_row": is_single_row
+        })
+
+    except Exception as e:
+        logger.error("🚨 Error in punch_order_to_sheet", exc_info=True)
+        return Response(
+            {"success": False, "error": str(e)},
+            status=500
+        )
+
+
+
+# Others Views ---------------------
+
+class CRMOrderBulkDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        order_ids = request.data.get("order_ids", [])
+
+        # ✅ ONLY ADMIN CAN DELETE
+        if user.role != "ADMIN":
+            return Response(
+                {"error": "You are not allowed to delete orders."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if not order_ids:
+            return Response(
+                {"error": "No orders selected"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ✅ ADMIN can delete ANY order
+        orders = SSOrder.objects.filter(id__in=order_ids)
+
+        if not orders.exists():
+            return Response(
+                {"error": "No valid orders found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        affected_products = []
+
+        with transaction.atomic():
+            for order in orders:
+                snapshots = PendingOrderItemSnapshot.objects.filter(order=order)
+                affected_products.extend([s.product for s in snapshots])
+                snapshots.delete()
+                order.delete()
+
+            # ✅ Recalculate stock once per product
+            for product in set(affected_products):
+                recalculate_virtual_stock(product)
+
+        return Response(
+            {"message": f"{orders.count()} orders permanently deleted"},
+            status=status.HTTP_200_OK
+        )
+
+@api_view(['POST'])
+def hold_order(request, order_id):
+    try:
+        crm_user = request.user
+        order = get_object_or_404(SSOrder, id=order_id, assigned_crm=crm_user)
+
+        # वो snapshots लो जो पहले order verify/forward होने पर बने थे
+        pending_snapshots = PendingOrderItemSnapshot.objects.filter(order=order)
+        affected_products = [snap.product for snap in pending_snapshots]
+
+        with transaction.atomic():
+
+            # ✅ पहले snapshots delete — ये stock restore का trigger है
+            pending_snapshots.delete()
+
+            # ✅ हर product का virtual stock दोबारा calculate
+            for p in set(affected_products):
+                recalculate_virtual_stock(p)
+
+            # ✅ Order status update
+            order.status = "HOLD"
+            order.notes = request.data.get("notes", order.notes)
+            order.save()
+
+        return Response(
+            {"message": "Order put on HOLD and stock restored."},
+            status=200
+        )
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return Response({"error": str(e)}, status=400)
+
+
+@api_view(['POST'])
+def reject_order(request, order_id):
+    try:
+        crm_user = request.user
+        order = get_object_or_404(SSOrder, id=order_id, assigned_crm=crm_user)
+
+        # वो snapshots लो जो पहले order verify/forward होने पर बने थे
+        pending_snapshots = PendingOrderItemSnapshot.objects.filter(order=order)
+        affected_products = [snap.product for snap in pending_snapshots]
+
+        with transaction.atomic():
+
+            # ✅ पहले snapshots delete — ये stock restore का trigger है
+            pending_snapshots.delete()
+
+            # ✅ हर product का virtual stock दोबारा calculate
+            for p in set(affected_products):
+                recalculate_virtual_stock(p)
+
+            # ✅ Order status update
+            order.status = "REJECTED"
+            order.notes = request.data.get("notes", order.notes)
+            order.save()
+
+        return Response(
+            {"message": "Order  Reject and stock restored."},
+            status=200
+        )
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return Response({"error": str(e)}, status=400)
+
+
+
+@api_view(["GET"])
+def list_orders_by_role(request):
+    user = request.user
+    order_id = request.GET.get("order_id")
+    party_name = request.GET.get("party_name")
+    from_date = request.GET.get("from_date")
+    to_date = request.GET.get("to_date")
+
+    # 🟦 Base Query
+    if user.role == "ADMIN":
+        orders = SSOrder.objects.all()
+    elif user.role == "CRM":
+        orders = SSOrder.objects.filter(assigned_crm=user)
+    elif user.role == "SS":
+        orders = SSOrder.objects.filter(ss_user=user)
+    else:
+        orders = SSOrder.objects.none()
+
+    # 🟦 Filters
+    if order_id:
+        orders = orders.filter(order_id__icontains=order_id)
+
+    if party_name:
+        orders = orders.filter(ss_user__party_name__icontains=party_name)
+
+    if from_date:
+        orders = orders.filter(created_at__date__gte=from_date)
+
+    if to_date:
+        orders = orders.filter(created_at__date__lte=to_date)
+
+    # 🟦 Default limit (latest 50)
+    if not (from_date or to_date or order_id or party_name):
+        orders = orders.order_by("-created_at")[:30]
+    else:
+        orders = orders.order_by("-created_at")
+
+    serializer = SSOrderSerializerTrack(orders, many=True)
+    return Response(serializer.data)
+
+
+class CombinedOrderTrackView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, order_id):
+        user = request.user
+
+        try:
+            order = SSOrder.objects.get(order_id=order_id)
+        except SSOrder.DoesNotExist:
+            return Response({"error": "Order not found"}, status=404)
+
+        # ✅ CRM apne assigned orders hi dekhega
+        if not (user.is_staff or user.is_superuser):
+            if order.assigned_crm != user and order.ss_user != user:
+                return Response({"error": "Not authorized"}, status=403)
+
+
+        data = CombinedOrderTrackSerializer(order).data
+        return Response(data, status=200)
+
+class UpdateOrderStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        crm_order = get_object_or_404(CRMVerifiedOrder, pk=pk)
+        new_status = request.data.get("status")
+        notes = request.data.get("notes")
+
+        if new_status not in ["HOLD", "APPROVED", "REJECTED"]:
+            return Response({"detail": "Invalid status"}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        crm_order.status = new_status
+        crm_order.notes = notes if new_status in ["HOLD", "REJECTED"] else None
+        crm_order.save(update_fields=["status", "notes"])
+
+        ss_order = crm_order.original_order
+        ss_order.status = new_status
+        ss_order.notes = notes if new_status in ["HOLD", "REJECTED"] else None
+        ss_order.save(update_fields=["status", "notes"])
+
+        return Response({
+            "detail": "Status updated successfully",
+            "status": new_status,
+            "notes": crm_order.notes
+        })
 
 
 class CRMVerifiedItemUpdateView(APIView):
