@@ -553,7 +553,7 @@ def punch_order_to_sheet(request):
         # ✅ Always write to sheet
         write_to_sheet(
             settings.SHEET_ID_NEW,
-            "abc",
+            "order_data_from_app",
             rows
         )
 
