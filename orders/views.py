@@ -997,54 +997,62 @@ class UploadDispatchExcel(APIView):
         file = request.FILES.get("file")
 
         if not file:
-            return Response(
-                {"error": "Excel file required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "Excel file required"}, status=400)
 
         wb = openpyxl.load_workbook(file)
         ws = wb.active
 
         created = 0
+        errors = []
+        objects = []
 
-        for row in ws.iter_rows(min_row=2, values_only=True):
+        for index, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
 
-            # ✅ SAFE INDEX READ (NO UNPACKING)
             order_id = row[0] if len(row) > 0 else None
             product = row[1] if len(row) > 1 else None
             quantity = row[2] if len(row) > 2 else None
             packed_time = row[3] if len(row) > 3 else None
 
-            if not order_id or not product or not quantity:
+            # ❌ VALIDATION
+            if not order_id or not product:
+                errors.append(f"Row {index}: Missing order_id/product")
                 continue
 
-            # 🔥 DATE HANDLE
-            if packed_time:
+            if not quantity or int(quantity) <= 0:
+                errors.append(f"Row {index}: Invalid quantity")
+                continue
+
+            # ✅ DATE HANDLE
+            try:
                 if isinstance(packed_time, datetime):
                     final_time = packed_time
                 elif isinstance(packed_time, str):
-                    try:
-                        final_time = datetime.strptime(
-                            packed_time.strip(),
-                            "%d-%m-%Y %H:%M"
-                        )
-                    except ValueError:
-                        final_time = timezone.now()
+                    final_time = datetime.strptime(
+                        packed_time.strip(), "%d-%m-%Y %H:%M"
+                    )
                 else:
                     final_time = timezone.now()
-            else:
+            except:
                 final_time = timezone.now()
 
-            DispatchOrder.objects.create(
-                order_id=str(order_id).strip(),
-                product=str(product).strip(),
-                quantity=int(quantity),
-                order_packed_time=final_time
+            objects.append(
+                DispatchOrder(
+                    order_id=str(order_id).strip(),
+                    product=str(product).strip(),
+                    quantity=int(quantity),
+                    order_packed_time=final_time
+                )
             )
 
-            created += 1
+        # 🚀 BULK INSERT (FAST)
+        with transaction.atomic():
+            DispatchOrder.objects.bulk_create(objects, batch_size=1000)
 
-        return Response(
-            {"message": "Upload successful", "created": created},
-            status=status.HTTP_201_CREATED
-        )
+        created = len(objects)
+
+        return Response({
+            "message": "Upload completed",
+            "created": created,
+            "failed": len(errors),
+            "errors": errors[:20]  # only first 20 errors
+        })
