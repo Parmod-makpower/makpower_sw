@@ -224,9 +224,13 @@ class CombinedOrderTrackSerializer(serializers.ModelSerializer):
                 for i in crm_record.items.all()
             ]
         }
-
     def get_dispatch_data(self, obj):
-        dispatch_items = DispatchOrder.objects.filter(order_id=obj.order_id)
+        crm_record = obj.crm_verified_versions.first()
+        if not crm_record:
+            return []
+
+        dispatch_items = DispatchOrder.objects.filter(order_id=str(crm_record.id))
+
         if not dispatch_items.exists():
             return []
 
@@ -238,6 +242,7 @@ class CombinedOrderTrackSerializer(serializers.ModelSerializer):
             }
             for d in dispatch_items
         ]
+    
 
 
 class SSOrderSerializerTrack(serializers.ModelSerializer):
