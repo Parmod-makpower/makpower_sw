@@ -3,7 +3,6 @@ import openpyxl
 from openpyxl.utils import get_column_letter
 from rest_framework import viewsets
 from rest_framework.views import APIView
-from rest_framework.viewsets import ModelViewSet
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from rest_framework.response import Response
@@ -13,6 +12,7 @@ from django.db import transaction
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
+from orders.models import  PendingOrderItemSnapshot, CRMVerifiedOrderItem, DispatchOrder
 from .models import  Product, SaleName, Scheme
 from .serializers import (  ProductSerializer, SaleNameSerializer,SchemeSerializer, ProductWithSaleNameSerializer)
 
@@ -234,12 +234,12 @@ def get_all_products_with_salenames(request):
 
 @api_view(['GET'])
 def get_virtual_stock(request):
-    products = Product.objects.filter(is_active=True).values("product_id", "virtual_stock")
+    products = Product.objects.values("product_id", "virtual_stock")
     return Response(products)
 
 @api_view(['GET'])
 def get_mumbai_stock(request):
-    products = Product.objects.filter(is_active=True).values("product_id", "mumbai_stock")
+    products = Product.objects.values("product_id", "mumbai_stock")
     return Response(products)
 
 @api_view(['GET'])
@@ -247,7 +247,6 @@ def get_inactive_products(request):
     products = Product.objects.filter(is_active=False).prefetch_related('sale_names').order_by('product_id')
     serializer = ProductWithSaleNameSerializer(products, many=True)
     return Response(serializer.data)
-
 
 
 @api_view(["GET"])
@@ -302,13 +301,6 @@ def export_products_excel(request):
     wb.save(response)
     return response
 
-
-# products/views.py
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from orders.models import SSOrderItem, PendingOrderItemSnapshot, CRMVerifiedOrderItem, DispatchOrder
-from .models import Product
 
 class ProductUsageReportView(APIView):
     def get(self, request, product_id):
