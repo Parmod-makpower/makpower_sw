@@ -1,7 +1,7 @@
 from rest_framework.generics import ListCreateAPIView
 from rest_framework.permissions import IsAuthenticated
-from .models import Cargo
-from .serializers import CargoSerializer
+from .models import Cargo, GST
+from .serializers import CargoSerializer, GSTSerializer
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from accounts.models import CustomUser
@@ -64,3 +64,15 @@ class CargoBulkUploadView(APIView):
             "updated": updated_count,
             "errors": error_rows
         })
+    
+
+class GSTView(ListCreateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = GSTSerializer
+
+    def get_queryset(self):
+        return GST.objects.select_related("party")
+
+    def perform_create(self, serializer):
+        serializer.save()
+

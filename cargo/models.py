@@ -23,3 +23,24 @@ class Cargo(models.Model):
         
     def __str__(self):
         return f"{self.cargo_name} - {self.party.party_name}"
+
+
+
+class GST(models.Model):
+    party = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="gst_orders",
+        limit_choices_to={"role": "SS"},
+        db_index=True
+    )
+
+    percentage = models.CharField(max_length=10)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["party"], name="unique_party_gst")
+        ]
+        
+    def __str__(self):
+        return f"{self.percentage} - {self.party.party_name}"

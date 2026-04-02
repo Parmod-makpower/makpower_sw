@@ -5,10 +5,10 @@ def start():
     scheduler = BackgroundScheduler()
 
     # Sampling → 4 hours
-    scheduler.add_job(sync_sampling_sheet, 'interval', hours=3)
+    scheduler.add_job(sync_sampling_sheet, 'interval', minutes=94)
 
     # Not In Stock → 6 hours
-    scheduler.add_job(sync_not_in_stock, 'interval', hours=4)
+    scheduler.add_job(sync_not_in_stock, 'interval', hours=129)
 
     # Not In Stock → 6 hours
     scheduler.add_job(sync_mahotsav_sheet, 'interval', minutes=67)
