@@ -76,3 +76,49 @@ class GSTView(ListCreateAPIView):
     def perform_create(self, serializer):
         serializer.save()
 
+
+
+class GSTBulkUploadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        rows = request.data
+
+        created_count = 0
+        updated_count = 0
+        error_rows = []
+
+        for i, row in enumerate(rows):
+            try:
+                party_name = row.get("party_name")
+
+                party = CustomUser.objects.filter(
+                    party_name__iexact=party_name,
+                    role="SS"
+                ).first()
+
+                if not party:
+                    error_rows.append(f"Row {i+1}: Party not found")
+                    continue
+
+                obj, created = GST.objects.update_or_create(
+                    party=party,  # 👈 unique condition
+                    defaults={
+                        "percentage": row.get("percentage"),
+                    }
+                )
+
+                if created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+
+            except Exception as e:
+                error_rows.append(f"Row {i+1}: {str(e)}")
+
+        return Response({
+            "created": created_count,
+            "updated": updated_count,
+            "errors": error_rows
+        })
+  
