@@ -8,7 +8,7 @@ def start():
     scheduler.add_job(sync_sampling_sheet, 'interval', minutes=97)
 
     # Not In Stock → 6 hours
-    scheduler.add_job(sync_not_in_stock, 'interval', minutes=129)
+    scheduler.add_job(sync_not_in_stock, 'interval', minutes=2)
 
     # Not In Stock → 6 hours
     scheduler.add_job(sync_mahotsav_sheet, 'interval', minutes=67)
