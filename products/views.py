@@ -46,7 +46,7 @@ class ProductViewSet(viewsets.ModelViewSet):
 class ProductBulkTemplateDownload(APIView):
     def get(self, request):
         # Template columns
-        columns = ["product_id", "product_name", "sub_category", "cartoon_size", "guarantee", "price", "ds_price", "moq", "quantity_type", "rack_no"]
+        columns = ["product_id", "product_name", "sub_category", "cartoon_size", "guarantee", "mah", "price", "ds_price", "moq", "quantity_type", "rack_no"]
         df = pd.DataFrame(columns=columns)
 
         # Excel response
@@ -76,6 +76,7 @@ class ProductBulkUpload(APIView):
                 "sub_category",
                 "cartoon_size",
                 "guarantee",
+                "mah",
                 "price",
                 "ds_price",
                 "moq",
