@@ -8,6 +8,7 @@ class Product(models.Model):
     sub_category = models.CharField(max_length=50, null=True, blank=True)
     cartoon_size = models.CharField(max_length=50, null=True, blank=True)
     mah = models.CharField(max_length=50, null=True, blank=True)
+    product_type = models.CharField(max_length=50, null=True, blank=True)
     guarantee = models.CharField(max_length=50, null=True, blank=True)
     price = models.CharField(max_length=10, null=True, blank=True)
     ds_price = models.CharField(max_length=10, null=True, blank=True)

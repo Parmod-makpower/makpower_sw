@@ -24,6 +24,7 @@ class ProductWithSaleNameSerializer(serializers.ModelSerializer):
             'sub_category',
             'cartoon_size',
             'guarantee',
+            'product_type',
             'mah',
             'price',        # ⭐ this will now come from get_price()
             'ds_price',
