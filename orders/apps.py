@@ -1,4 +1,3 @@
-# orders/apps.py
 from django.apps import AppConfig
 
 
@@ -7,9 +6,10 @@ class OrdersConfig(AppConfig):
     name = 'orders'
 
     def ready(self):
-        # 🔄 Import signals so LivePendingStock auto-updates
-        import orders.signals  # 👈 यह जोड़ दिया
 
-        # 🕒 Scheduler को भी run होने दो जैसा पहले था
+        # ✅ signals import
+        import orders.signals
+
+        # ✅ scheduler start
         from .scheduler import start
         start()
