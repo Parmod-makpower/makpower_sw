@@ -12,7 +12,7 @@ def auto_hold_old_orders():
 
     old_orders = SSOrder.objects.filter(
         status="PENDING",
-        created_at__lte=timezone.now() - timedelta(days=4)
+        created_at__lte=timezone.now() - timedelta(days=3)
     )
 
     for order in old_orders:

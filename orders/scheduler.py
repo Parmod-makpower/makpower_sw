@@ -14,7 +14,7 @@ def start():
     scheduler = BackgroundScheduler()
 
     # ✅ हर 1 घंटे बाद check
-    scheduler.add_job(auto_hold_old_orders, trigger='interval', minutes=5)
+    scheduler.add_job(auto_hold_old_orders, trigger='interval', hours=10)
 
     scheduler.start()
 
