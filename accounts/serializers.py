@@ -15,7 +15,7 @@ class SSUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = [
-            'id', 'role', 'user_id', 'stock_location', 'mobile', 'password', 'name', 'crm', 'crm_name',
+            'id', 'role', 'user_id', 'stock_location', 'mobile', 'password', 'name', 'crm', 'crm_name', 'ss',
             'party_name', 'is_active', 'created_at', 'created_by'
         ]
         read_only_fields = ['user_id', 'created_at']
