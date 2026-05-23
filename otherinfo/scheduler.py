@@ -4,13 +4,13 @@ from otherinfo.sync import sync_sampling_sheet, sync_not_in_stock, sync_mahotsav
 def start():
     scheduler = BackgroundScheduler()
 
-    # Sampling → 4 hours
-    scheduler.add_job(sync_sampling_sheet, 'interval', minutes=97)
+    # Sampling
+    scheduler.add_job(sync_sampling_sheet, 'interval', minutes=117)
 
-    # Not In Stock → 6 hours
+    # Not In Stock
     scheduler.add_job(sync_not_in_stock, 'interval', minutes=129)
 
-    # Not In Stock → 6 hours
-    scheduler.add_job(sync_mahotsav_sheet, 'interval', minutes=67)
+    # MAHOTSAV
+    scheduler.add_job(sync_mahotsav_sheet, 'interval', minutes=139)
 
     scheduler.start()
