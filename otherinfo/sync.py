@@ -4,9 +4,57 @@ from .models import SamplingSheet, NotInStockReport, Mahotsav
 from products.utils import get_sheet
 from datetime import datetime
 
+# def sync_sampling_sheet():
+#     try:
+#         # 🔒 पुरानी DB connections बंद करो
+#         connection.close()
+
+#         sheet = get_sheet(
+#             sheet_id=settings.SHEET_ID_NEW,
+#             sheet_name="Sampling"
+#         )
+
+#         rows = sheet.get_all_records()
+
+#         with transaction.atomic():
+#             # ✅ पहले पूरा table clear
+#             SamplingSheet.objects.all().delete()
+
+#             if not rows:
+#                 print("⚠️ Sampling sheet खाली है")
+#                 return
+
+#             new_rows = []
+
+#             for row in rows:
+#                 party_name = row.get("PARTY NAME")
+#                 sampling_Items = row.get("sampling_Items")
+               
+#                 if not party_name:
+#                     continue
+
+#                 if not sampling_Items or sampling_Items.strip().lower() == "no":
+#                     sampling_Items = ""
+
+#                 new_rows.append(
+#                     SamplingSheet(
+#                         party_name=party_name.strip(),
+#                         sampling_Items=sampling_Items.strip(),
+#                     )
+#                 )
+
+#             SamplingSheet.objects.bulk_create(new_rows)
+
+#         print(f"✅ Sampling sheet sync complete: {len(new_rows)} rows")
+
+#     except Exception as e:
+#         print(f"❌ Sync failed due to error: {e}")
+
+
+
 def sync_sampling_sheet():
     try:
-        # 🔒 पुरानी DB connections बंद करो
+        # 🔒 Close old DB connections
         connection.close()
 
         sheet = get_sheet(
@@ -17,29 +65,42 @@ def sync_sampling_sheet():
         rows = sheet.get_all_records()
 
         with transaction.atomic():
-            # ✅ पहले पूरा table clear
+            # ✅ Clear old data
             SamplingSheet.objects.all().delete()
 
             if not rows:
-                print("⚠️ Sampling sheet खाली है")
+                print("⚠️ Sampling sheet empty")
                 return
 
             new_rows = []
 
             for row in rows:
                 party_name = row.get("PARTY NAME")
-                items = row.get("Items")
-               
+                sampling_items = row.get("sampling_Items")
+                sixty_days_items = row.get("60_days_items")
+
                 if not party_name:
                     continue
 
-                if not items or items.strip().lower() == "no":
-                    items = ""
+                # ✅ Sampling items cleanup
+                if (
+                    not sampling_items
+                    or str(sampling_items).strip().lower() == "no"
+                ):
+                    sampling_items = ""
+
+                # ✅ 60 days items cleanup
+                if (
+                    not sixty_days_items
+                    or str(sixty_days_items).strip().lower() == "no"
+                ):
+                    sixty_days_items = ""
 
                 new_rows.append(
                     SamplingSheet(
                         party_name=party_name.strip(),
-                        items=items.strip(),
+                        sampling_Items=str(sampling_items).strip(),
+                        sixty_days_Items=str(sixty_days_items).strip(),
                     )
                 )
 

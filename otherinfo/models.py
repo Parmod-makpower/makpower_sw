@@ -3,8 +3,8 @@ from django.db import models
 
 class SamplingSheet(models.Model):
     party_name = models.CharField(max_length=255)
-    items = models.TextField(help_text="Comma separated item codes")
-    mahotsav_dispatch_quantity = models.CharField(max_length=200, null=True, blank=True)
+    sampling_Items = models.TextField(help_text="Comma separated item codes")
+    sixty_days_Items = models.TextField(help_text="Comma separated item codes")
 
     def __str__(self):
         return self.party_name
