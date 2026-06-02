@@ -10,7 +10,7 @@ def start():
     # Not In Stock
     scheduler.add_job(sync_not_in_stock, 'interval', minutes=129)
 
-    # MAHOTSAV
-    scheduler.add_job(sync_mahotsav_sheet, 'interval', minutes=139)
+    # Goa Trip
+    scheduler.add_job(sync_mahotsav_sheet, 'interval', minutes=739)
 
     scheduler.start()
