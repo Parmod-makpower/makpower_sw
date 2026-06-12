@@ -1,6 +1,6 @@
 
 from django.urls import path
-from .views import SSOrderCreateView, CRMOrderListView, CRMOrderVerifyView,FinalOrderHistoryView, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderBulkDeleteView, AddItemToCRMVerifiedOrderView, CRMVerifiedItemUpdateView, CRMVerifiedItemDeleteView, hold_order, reject_order, CombinedOrderTrackView, list_orders_by_role, submit_meet_form, submit_dealer_list,DeleteAllDispatchOrders, SimpleSSOrderCreateView,DispatchOrderListView, UploadDispatchExcel, DownloadDispatchExcel, DeleteSelectedDispatchOrders, FinalOrderDetailsView
+from .views import SSOrderCreateView, CRMOrderListView, CRMOrderVerifyView,FinalOrderHistoryView, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderBulkDeleteView, AddItemToCRMVerifiedOrderView, CRMVerifiedItemUpdateView, CRMVerifiedItemDeleteView, hold_order, reject_order, CombinedOrderTrackView, list_orders_by_role, submit_meet_form, submit_dealer_list,DeleteAllDispatchOrders, SimpleSSOrderCreateView,DispatchOrderListView, UploadDispatchExcel, DownloadDispatchExcel, DeleteSelectedDispatchOrders, FinalOrderDetailsView, download_orders_report
 
 
 urlpatterns = [
@@ -29,6 +29,8 @@ urlpatterns = [
     path("dispatch-orders/delete-selected/", DeleteSelectedDispatchOrders.as_view()),
     path("dispatch-orders/excel/download/", DownloadDispatchExcel.as_view()),
     path("dispatch-orders/excel/upload/", UploadDispatchExcel.as_view()),
+
+    path("download-orders-report/",download_orders_report,  name="download-orders-report"),
 
 
     path("ss-orders/simple-create/", SimpleSSOrderCreateView.as_view()),

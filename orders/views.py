@@ -1056,3 +1056,185 @@ class UploadDispatchExcel(APIView):
             "failed": len(errors),
             "errors": errors[:20]  # only first 20 errors
         })
+
+from datetime import datetime, timedelta
+
+from django.http import HttpResponse
+from django.utils import timezone
+
+from openpyxl import Workbook
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+
+from orders.models import SSOrder, CRMVerifiedOrder
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def download_orders_report(request):
+
+    from_date = request.GET.get("from_date")
+    to_date = request.GET.get("to_date")
+    report_type = request.GET.get("report_type", "ss")
+
+    if not from_date or not to_date:
+        return HttpResponse(
+            "from_date and to_date required",
+            status=400
+        )
+
+    start_date = timezone.make_aware(
+        datetime.strptime(from_date, "%Y-%m-%d")
+    )
+
+    end_date = timezone.make_aware(
+        datetime.strptime(to_date, "%Y-%m-%d")
+        + timedelta(days=1)
+    )
+
+    wb = Workbook()
+    ws = wb.active
+
+    # =====================================================
+    # SS ORDERS REPORT
+    # =====================================================
+    if report_type == "ss":
+
+        ws.title = "SS Orders"
+
+        ws.append([
+            "Order ID",
+            "Order Date",
+            "Party Name",
+            "CRM Name",
+            "Status",
+            "Product",
+            "Quantity",
+        ])
+
+        orders = (
+            SSOrder.objects
+            .filter(
+                created_at__gte=start_date,
+                created_at__lt=end_date
+            )
+            .select_related(
+                "ss_user",
+                "assigned_crm"
+            )
+            .prefetch_related(
+                "items__product"
+            )
+            .order_by("-created_at")
+        )
+
+        for order in orders:
+
+            for item in order.items.all():
+
+                ws.append([
+                    order.order_id,
+
+                    order.created_at.strftime(
+                        "%d-%m-%Y %H:%M"
+                    ),
+
+                    getattr(
+                        order.ss_user,
+                        "party_name",
+                        ""
+                    ),
+
+                    getattr(
+                        order.assigned_crm,
+                        "name",
+                        ""
+                    ),
+
+                    order.status,
+
+                    item.product.product_name
+                    if item.product else "",
+
+                    item.quantity,
+                ])
+
+    # =====================================================
+    # CRM VERIFIED REPORT
+    # =====================================================
+    else:
+
+        ws.title = "CRM Verified Orders"
+
+        ws.append([
+            "Order ID",
+            "Verified Date",
+            "Party Name",
+            "CRM Name",
+            "Status",
+            "Product",
+            "Quantity",
+        ])
+
+        orders = (
+            CRMVerifiedOrder.objects
+            .filter(
+                verified_at__gte=start_date,
+                verified_at__lt=end_date
+            )
+            .select_related(
+                "crm_user",
+                "original_order",
+                "original_order__ss_user"
+            )
+            .prefetch_related(
+                "items__product"
+            )
+            .order_by("-verified_at")
+        )
+
+        for order in orders:
+
+            for item in order.items.all():
+
+                ws.append([
+                    order.original_order.order_id,
+
+                    order.verified_at.strftime(
+                        "%d-%m-%Y %H:%M"
+                    ),
+
+                    getattr(
+                        order.original_order.ss_user,
+                        "party_name",
+                        ""
+                    ),
+
+                    getattr(
+                        order.crm_user,
+                        "name",
+                        ""
+                    ),
+
+                    order.status,
+
+                    item.product.product_name
+                    if item.product else "",
+
+                    item.quantity,
+                ])
+
+    response = HttpResponse(
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    response[
+        "Content-Disposition"
+    ] = (
+        f'attachment; filename="{report_type}_orders_{from_date}_to_{to_date}.xlsx"'
+    )
+
+    wb.save(response)
+
+    return response
