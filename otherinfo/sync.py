@@ -4,53 +4,6 @@ from .models import SamplingSheet, NotInStockReport, Mahotsav
 from products.utils import get_sheet
 from datetime import datetime
 
-# def sync_sampling_sheet():
-#     try:
-#         # 🔒 पुरानी DB connections बंद करो
-#         connection.close()
-
-#         sheet = get_sheet(
-#             sheet_id=settings.SHEET_ID_NEW,
-#             sheet_name="Sampling"
-#         )
-
-#         rows = sheet.get_all_records()
-
-#         with transaction.atomic():
-#             # ✅ पहले पूरा table clear
-#             SamplingSheet.objects.all().delete()
-
-#             if not rows:
-#                 print("⚠️ Sampling sheet खाली है")
-#                 return
-
-#             new_rows = []
-
-#             for row in rows:
-#                 party_name = row.get("PARTY NAME")
-#                 sampling_Items = row.get("sampling_Items")
-               
-#                 if not party_name:
-#                     continue
-
-#                 if not sampling_Items or sampling_Items.strip().lower() == "no":
-#                     sampling_Items = ""
-
-#                 new_rows.append(
-#                     SamplingSheet(
-#                         party_name=party_name.strip(),
-#                         sampling_Items=sampling_Items.strip(),
-#                     )
-#                 )
-
-#             SamplingSheet.objects.bulk_create(new_rows)
-
-#         print(f"✅ Sampling sheet sync complete: {len(new_rows)} rows")
-
-#     except Exception as e:
-#         print(f"❌ Sync failed due to error: {e}")
-
-
 
 def sync_sampling_sheet():
     try:
@@ -193,9 +146,9 @@ def sync_mahotsav_sheet():
             "crm_name",
             "product_name",
             "mahotsav_dispatch_quantity",
-            "gas_stove",
-            "kitchen_cookware",
-            "dinner_set",
+            # "gas_stove",
+            # "kitchen_cookware",
+            # "dinner_set",
         ])
 
         with transaction.atomic():
@@ -211,9 +164,9 @@ def sync_mahotsav_sheet():
                 crm_name = row.get("crm_name", "")
                 party_name = row.get("product_name", "")
                 mahotsav_dispatch_quantity = row.get("mahotsav_dispatch_quantity")
-                gas_stove = row.get("gas_stove")
-                kitchen_cookware = row.get("kitchen_cookware")
-                dinner_set = row.get("dinner_set")
+                # gas_stove = row.get("gas_stove")
+                # kitchen_cookware = row.get("kitchen_cookware")
+                # dinner_set = row.get("dinner_set")
 
                 if not party_name:
                     continue
@@ -223,9 +176,9 @@ def sync_mahotsav_sheet():
                         crm_name=crm_name.strip() if crm_name else "",
                         party_name=party_name.strip(),
                         mahotsav_dispatch_quantity=mahotsav_dispatch_quantity,
-                        gas_stove=gas_stove,
-                        kitchen_cookware=kitchen_cookware,
-                        dinner_set=dinner_set
+                        # gas_stove=gas_stove,
+                        # kitchen_cookware=kitchen_cookware,
+                        # dinner_set=dinner_set
                     )
                 )
 
