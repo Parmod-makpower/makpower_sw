@@ -11,6 +11,6 @@ def start():
     scheduler.add_job(sync_not_in_stock, 'interval', minutes=129)
 
     # Goa Trip
-    scheduler.add_job(sync_mahotsav_sheet, 'interval', minutes=739)
+    scheduler.add_job(sync_mahotsav_sheet, 'interval', minutes=139)
 
     scheduler.start()
