@@ -13,6 +13,10 @@ def send_whatsapp_template(to_number, template_name, template_language, paramete
     token = os.getenv("META_WHATSAPP_TOKEN")
     phone_number_id = os.getenv("META_PHONE_NUMBER_ID")
     version = os.getenv("META_WHATSAPP_VERSION", "v20.0")
+    
+    print("META_PHONE_NUMBER_ID =", phone_number_id)
+    print("META_WHATSAPP_VERSION =", version)
+    print("URL =", f"https://graph.facebook.com/{version}/{phone_number_id}/messages")
 
     if not (token and phone_number_id):
         print("❌ Meta WhatsApp credentials missing in environment variables")
