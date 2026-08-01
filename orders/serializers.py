@@ -262,3 +262,21 @@ class DispatchOrderSerializer(serializers.ModelSerializer):
         model = DispatchOrder
         fields = "__all__"
 
+class HROrderListSerializer(serializers.ModelSerializer):
+    order_id = serializers.CharField(read_only=True)
+    ss_user_name = serializers.CharField(source="ss_user.name", read_only=True)
+    ss_party_name = serializers.CharField(source="ss_user.party_name", read_only=True)
+    crm_name = serializers.CharField(source="assigned_crm.name", read_only=True)
+
+    class Meta:
+        model = SSOrder
+        fields = [
+            "id",
+            "order_id",
+            "ss_user_name",
+            "ss_party_name",
+            "crm_name",
+            "status",
+            "note",
+            "created_at",
+        ]

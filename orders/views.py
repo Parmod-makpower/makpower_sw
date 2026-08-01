@@ -1238,3 +1238,118 @@ def download_orders_report(request):
     wb.save(response)
 
     return response
+
+from datetime import datetime
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+
+from .serializers import HROrderListSerializer
+
+
+@api_view(["GET"])
+def hr_orders(request):
+    """
+    HR Orders List
+
+    Filters:
+    ?from_date=2026-07-01
+    ?to_date=2026-07-31
+    ?status=PENDING
+    ?party_name=ABC
+    ?order_id=ORD
+    """
+
+    user = request.user
+
+    # ---------------------------------
+    # Base Query By Role
+    # ---------------------------------
+
+    if user.role == "ADMIN":
+        orders = SSOrder.objects.select_related(
+            "ss_user",
+            "assigned_crm",
+        )
+
+    elif user.role == "HR":
+        orders = SSOrder.objects.select_related(
+            "ss_user",
+            "assigned_crm",
+        )
+
+    elif user.role == "CRM":
+        orders = SSOrder.objects.select_related(
+            "ss_user",
+            "assigned_crm",
+        ).filter(
+            assigned_crm=user
+        )
+
+    else:
+        orders = SSOrder.objects.none()
+
+    # ---------------------------------
+    # Filters
+    # ---------------------------------
+
+    order_id = request.GET.get("order_id")
+    party_name = request.GET.get("party_name")
+    status_value = request.GET.get("status")
+    from_date = request.GET.get("from_date")
+    to_date = request.GET.get("to_date")
+
+    if order_id:
+        orders = orders.filter(
+            order_id__icontains=order_id
+        )
+
+    if party_name:
+        orders = orders.filter(
+            ss_user__party_name__icontains=party_name
+        )
+
+    if status_value and status_value != "ALL":
+        orders = orders.filter(
+            status=status_value
+        )
+
+    if from_date:
+        try:
+            orders = orders.filter(
+                created_at__date__gte=datetime.strptime(
+                    from_date,
+                    "%Y-%m-%d"
+                ).date()
+            )
+        except ValueError:
+            return Response(
+                {"error": "Invalid from_date"},
+                status=400,
+            )
+
+    if to_date:
+        try:
+            orders = orders.filter(
+                created_at__date__lte=datetime.strptime(
+                    to_date,
+                    "%Y-%m-%d"
+                ).date()
+            )
+        except ValueError:
+            return Response(
+                {"error": "Invalid to_date"},
+                status=400,
+            )
+
+    # ---------------------------------
+    # Latest First
+    # ---------------------------------
+
+    orders = orders.order_by("-created_at")
+
+    serializer = HROrderListSerializer(
+        orders,
+        many=True,
+    )
+
+    return Response(serializer.data)

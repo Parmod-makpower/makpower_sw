@@ -12,6 +12,7 @@ USER_ROLES = (
     ('ASM', 'ASM'),
     ('SS', 'Super Stockist'),
     ('DS', 'Distributor'),
+    ('HR', 'HR'),
 )
 
 STOCK_LOCATIONS = (
@@ -21,7 +22,7 @@ STOCK_LOCATIONS = (
 
 
 def generate_user_id(role, last_id):
-    prefix = {'ADMIN': 'AD', 'CRM': 'CRM', 'ASM': 'ASM', 'SS': 'SS', 'DS': 'DS'}
+    prefix = {'ADMIN': 'AD', 'CRM': 'CRM', 'ASM': 'ASM', 'SS': 'SS', 'DS': 'DS', 'HR': 'HR'}
     return f"{prefix[role]}{str(last_id + 1).zfill(4)}"
 
 # -------------------------------
@@ -36,7 +37,7 @@ class CustomUserManager(BaseUserManager):
             raise ValueError('Role is required')
 
         # Get max existing number for the role
-        prefix = {'ADMIN': 'AD', 'CRM': 'CRM', 'ASM': 'ASM', 'SS': 'SS', 'DS': 'DS'}
+        prefix = {'ADMIN': 'AD', 'CRM': 'CRM', 'ASM': 'ASM', 'SS': 'SS', 'DS': 'DS', 'HR': 'HR'}
         last_user = self.model.objects.filter(role=role).order_by('-id').first()
         if last_user:
             try:
