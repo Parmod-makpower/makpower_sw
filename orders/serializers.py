@@ -278,5 +278,6 @@ class HROrderListSerializer(serializers.ModelSerializer):
             "crm_name",
             "status",
             "note",
+            "notes",
             "created_at",
         ]

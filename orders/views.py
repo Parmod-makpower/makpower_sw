@@ -8,8 +8,9 @@ from django.db import transaction
 from django.db.models import Q
 from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder, Product, DispatchOrder
 from django.contrib.auth import get_user_model
-from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, VerifiedOrderHistorysSerializer , VerifiedOrderDetailsSerializer, CombinedOrderTrackSerializer, SSOrderSerializerTrack, DispatchOrderSerializer
+from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, VerifiedOrderHistorysSerializer , VerifiedOrderDetailsSerializer, CombinedOrderTrackSerializer, SSOrderSerializerTrack, DispatchOrderSerializer, HROrderListSerializer
 from rest_framework.permissions import IsAuthenticated
+from datetime import datetime, timedelta
 from rest_framework.generics import ListAPIView
 from django.shortcuts import get_object_or_404
 from .utils import send_whatsapp_template
@@ -25,7 +26,6 @@ from rest_framework import status
 from .models import DispatchOrder
 from django.http import HttpResponse
 from rest_framework.views import APIView
-from datetime import datetime
 import logging
 
 
@@ -1239,64 +1239,38 @@ def download_orders_report(request):
 
     return response
 
-from datetime import datetime
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-
-from .serializers import HROrderListSerializer
-
 
 @api_view(["GET"])
 def hr_orders(request):
-    """
-    HR Orders List
-
-    Filters:
-    ?from_date=2026-07-01
-    ?to_date=2026-07-31
-    ?status=PENDING
-    ?party_name=ABC
-    ?order_id=ORD
-    """
-
     user = request.user
 
-    # ---------------------------------
-    # Base Query By Role
-    # ---------------------------------
-
-    if user.role == "ADMIN":
+    if user.role in ["ADMIN", "HR"]:
         orders = SSOrder.objects.select_related(
             "ss_user",
             "assigned_crm",
         )
-
-    elif user.role == "HR":
-        orders = SSOrder.objects.select_related(
-            "ss_user",
-            "assigned_crm",
-        )
-
     elif user.role == "CRM":
-        orders = SSOrder.objects.select_related(
-            "ss_user",
-            "assigned_crm",
-        ).filter(
-            assigned_crm=user
+        orders = (
+            SSOrder.objects.select_related(
+                "ss_user",
+                "assigned_crm",
+            )
+            .filter(assigned_crm=user)
         )
-
     else:
         orders = SSOrder.objects.none()
-
-    # ---------------------------------
-    # Filters
-    # ---------------------------------
 
     order_id = request.GET.get("order_id")
     party_name = request.GET.get("party_name")
     status_value = request.GET.get("status")
     from_date = request.GET.get("from_date")
     to_date = request.GET.get("to_date")
+
+    if not from_date and not to_date:
+        default_from_date = timezone.now().date() - timedelta(days=2)
+        orders = orders.filter(
+            created_at__date__gte=default_from_date
+        )
 
     if order_id:
         orders = orders.filter(
@@ -1315,11 +1289,13 @@ def hr_orders(request):
 
     if from_date:
         try:
+            from_date = datetime.strptime(
+                from_date,
+                "%Y-%m-%d",
+            ).date()
+
             orders = orders.filter(
-                created_at__date__gte=datetime.strptime(
-                    from_date,
-                    "%Y-%m-%d"
-                ).date()
+                created_at__date__gte=from_date
             )
         except ValueError:
             return Response(
@@ -1329,21 +1305,19 @@ def hr_orders(request):
 
     if to_date:
         try:
+            to_date = datetime.strptime(
+                to_date,
+                "%Y-%m-%d",
+            ).date()
+
             orders = orders.filter(
-                created_at__date__lte=datetime.strptime(
-                    to_date,
-                    "%Y-%m-%d"
-                ).date()
+                created_at__date__lte=to_date
             )
         except ValueError:
             return Response(
                 {"error": "Invalid to_date"},
                 status=400,
             )
-
-    # ---------------------------------
-    # Latest First
-    # ---------------------------------
 
     orders = orders.order_by("-created_at")
 
@@ -1353,3 +1327,26 @@ def hr_orders(request):
     )
 
     return Response(serializer.data)
+
+@api_view(["PATCH"])
+@permission_classes([IsAuthenticated])
+def hr_update_order_notes(request, pk):
+    try:
+        order = SSOrder.objects.get(id=pk)
+    except SSOrder.DoesNotExist:
+        return Response(
+            {"detail": "Order not found"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    notes = request.data.get("notes", "").strip()
+
+    order.notes = notes
+    order.save(update_fields=["notes"])
+
+    return Response(
+        {
+            "message": "Remarks updated successfully",
+            "notes": order.notes,
+        }
+    )
