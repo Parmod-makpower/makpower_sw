@@ -1249,75 +1249,29 @@ def hr_orders(request):
             "ss_user",
             "assigned_crm",
         )
+
     elif user.role == "CRM":
         orders = (
             SSOrder.objects.select_related(
                 "ss_user",
                 "assigned_crm",
+            ).filter(
+                assigned_crm=user
             )
-            .filter(assigned_crm=user)
         )
+
     else:
         orders = SSOrder.objects.none()
 
-    order_id = request.GET.get("order_id")
-    party_name = request.GET.get("party_name")
-    status_value = request.GET.get("status")
-    from_date = request.GET.get("from_date")
-    to_date = request.GET.get("to_date")
+    last_three_days = timezone.now().date() - timedelta(days=10)
 
-    if not from_date and not to_date:
-        default_from_date = timezone.now().date() - timedelta(days=2)
-        orders = orders.filter(
-            created_at__date__gte=default_from_date
-        )
-
-    if order_id:
-        orders = orders.filter(
-            order_id__icontains=order_id
-        )
-
-    if party_name:
-        orders = orders.filter(
-            ss_user__party_name__icontains=party_name
-        )
-
-    if status_value and status_value != "ALL":
-        orders = orders.filter(
-            status=status_value
-        )
-
-    if from_date:
-        try:
-            from_date = datetime.strptime(
-                from_date,
-                "%Y-%m-%d",
-            ).date()
-
-            orders = orders.filter(
-                created_at__date__gte=from_date
-            )
-        except ValueError:
-            return Response(
-                {"error": "Invalid from_date"},
-                status=400,
-            )
-
-    if to_date:
-        try:
-            to_date = datetime.strptime(
-                to_date,
-                "%Y-%m-%d",
-            ).date()
-
-            orders = orders.filter(
-                created_at__date__lte=to_date
-            )
-        except ValueError:
-            return Response(
-                {"error": "Invalid to_date"},
-                status=400,
-            )
+    orders = orders.filter(
+        created_at__date__gte=last_three_days
+    )
+   
+    orders = orders.exclude(
+        status__in=["APPROVED", "REJECTED"]
+    )
 
     orders = orders.order_by("-created_at")
 
@@ -1327,6 +1281,7 @@ def hr_orders(request):
     )
 
     return Response(serializer.data)
+
 
 @api_view(["PATCH"])
 @permission_classes([IsAuthenticated])
