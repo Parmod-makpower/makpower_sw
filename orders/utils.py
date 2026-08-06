@@ -11,15 +11,12 @@ def send_whatsapp_template(to_number, template_name, template_language, paramete
                        example: ["Party Name", "Order ID", "₹1000"]
     """
     token = os.getenv("META_WHATSAPP_TOKEN")
-    phone_number_id = os.getenv("META_PHONE_NUMBER_ID")
-    version = os.getenv("META_WHATSAPP_VERSION", "v20.0")
     
-
-    if not (token and phone_number_id):
-        print("❌ Meta WhatsApp credentials missing in environment variables")
+    if not token:
+        print("❌ Spur WhatsApp token (META_WHATSAPP_TOKEN) missing in environment variables")
         return False
 
-    url = f"https://graph.facebook.com/{version}/{phone_number_id}/messages"
+    url = "https://api.spurnow.com/send-message"
 
     # template parameters
     components = []
@@ -30,13 +27,15 @@ def send_whatsapp_template(to_number, template_name, template_language, paramete
         }]
 
     payload = {
-        "messaging_product": "whatsapp",
+        "channel": "whatsapp",
         "to": f"91{to_number}",
-        "type": "template",
-        "template": {
-            "name": template_name,
-            "language": {"code": template_language},
-            "components": components
+        "content": {
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {"code": template_language},
+                "components": components
+            }
         }
     }
 

@@ -116,7 +116,8 @@ class SSOrderCreateView(APIView):
 
             # ✅ WhatsApp send (अब दोनों orders के लिए)
             crm_numbers = {
-                2: "7678491163",
+                2: "9306443566",
+                3: "9306443566",
                 4: "9312093178",
                 7: "8595957195",
                 8: "9266877089",
@@ -125,7 +126,7 @@ class SSOrderCreateView(APIView):
             }
             crm_number = crm_numbers.get(crm_user.id)
             if crm_number:
-                template_name = "order_updation"
+                template_name = "app_new_order"
                 template_language = "EN"
 
                 for each_order in [tempered_order, normal_order]:
