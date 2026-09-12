@@ -88,6 +88,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     created_by = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='created_users')
 
     is_active = models.BooleanField(default=True)
+    auth_version = models.PositiveIntegerField(default=1)
     is_staff = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
