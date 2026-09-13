@@ -1,34 +1,96 @@
+# from rest_framework.views import APIView
+# from rest_framework.decorators import api_view
+# from rest_framework.response import Response
+# from rest_framework.generics import RetrieveAPIView
+# from rest_framework import status
+# from rest_framework import status as drf_status
+# from django.db import transaction
+# from django.db.models import Q
+# from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder, Product, DispatchOrder
+# from django.contrib.auth import get_user_model
+# from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, VerifiedOrderHistorysSerializer , VerifiedOrderDetailsSerializer, CombinedOrderTrackSerializer, SSOrderSerializerTrack, DispatchOrderSerializer, HROrderListSerializer
+# from rest_framework.permissions import IsAuthenticated
+# from datetime import datetime, timedelta
+# from rest_framework.generics import ListAPIView
+# from django.shortcuts import get_object_or_404
+# from .utils import send_whatsapp_template
+# from django.db import transaction
+# from orders.models import PendingOrderItemSnapshot
+# from products.utils import recalculate_virtual_stock
+# from django.conf import settings
+# from products.utils import write_to_sheet
+# from datetime import datetime, timedelta
+
+# from django.http import HttpResponse
+# from django.utils import timezone
+
+# from openpyxl import Workbook
+
+# from rest_framework.decorators import api_view, permission_classes
+# from rest_framework.permissions import IsAuthenticated
+
+# from orders.models import SSOrder, CRMVerifiedOrder
+# import openpyxl
+# from django.utils import timezone
+# from rest_framework.parsers import MultiPartParser
+# from rest_framework import status
+# from .models import DispatchOrder
+# from django.http import HttpResponse
+# from rest_framework.views import APIView
+# import logging
+
 from rest_framework.views import APIView
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.generics import RetrieveAPIView
+from rest_framework.generics import RetrieveAPIView, ListAPIView
 from rest_framework import status
-from rest_framework import status as drf_status
+from rest_framework.permissions import IsAuthenticated
+
 from django.db import transaction
 from django.db.models import Q
-from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder, Product, DispatchOrder
 from django.contrib.auth import get_user_model
-from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, VerifiedOrderHistorysSerializer , VerifiedOrderDetailsSerializer, CombinedOrderTrackSerializer, SSOrderSerializerTrack, DispatchOrderSerializer, HROrderListSerializer
-from rest_framework.permissions import IsAuthenticated
-from datetime import datetime, timedelta
-from rest_framework.generics import ListAPIView
 from django.shortcuts import get_object_or_404
-from .utils import send_whatsapp_template
-from django.db import transaction
-from orders.models import PendingOrderItemSnapshot
-from products.utils import recalculate_virtual_stock
-from django.conf import settings
-from products.utils import write_to_sheet
-import openpyxl
-from django.utils import timezone
-from rest_framework.parsers import MultiPartParser
-from rest_framework import status
-from .models import DispatchOrder
 from django.http import HttpResponse
-from rest_framework.views import APIView
+from django.conf import settings
+from django.utils import timezone
+
+from datetime import datetime, timedelta
+
+from openpyxl import Workbook
+import openpyxl
 import logging
 
+from rest_framework.parsers import MultiPartParser
 
+from .models import (
+    SSOrder,
+    SSOrderItem,
+    CRMVerifiedOrderItem,
+    CRMVerifiedOrder,
+    Product,
+    DispatchOrder,
+)
+
+from orders.models import PendingOrderItemSnapshot
+
+from .serializers import (
+    SSOrderSerializer,
+    SS_to_CRM_Orders,
+    CRMVerifiedOrderSerializer,
+    VerifiedOrderHistorysSerializer,
+    VerifiedOrderDetailsSerializer,
+    CombinedOrderTrackSerializer,
+    SSOrderSerializerTrack,
+    DispatchOrderSerializer,
+    HROrderListSerializer,
+)
+
+from .utils import send_whatsapp_template
+
+from products.utils import (
+    recalculate_virtual_stock,
+    write_to_sheet,
+)
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -822,91 +884,6 @@ class CRMVerifiedItemDeleteView(APIView):
             return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
-@api_view(["POST"])
-def submit_meet_form(request):
-    try:
-        data = request.data
-
-        business_name = data.get("business_name", "")
-        person_name = data.get("person_name", "")
-        phone = data.get("phone", "")
-        district = data.get("district", "")
-
-        # validation
-        if not person_name or not phone:
-            return Response({"error": "Person name and phone required"}, status=400)
-
-        # IST timestamp
-        ist_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # row for google sheet
-        row = [
-            business_name,
-            person_name,
-            phone,
-            district,
-            ist_timestamp
-        ]
-
-        # sheet name → abc
-        write_to_sheet(
-            settings.SHEET_ID_NEW,
-            "abc",
-            [row]
-        )
-
-        return Response({"success": True, "message": "Form submitted successfully"})
-
-    except Exception as e:
-        logger.error(f"Meet form error: {str(e)}", exc_info=True)
-        return Response({"error": "Internal Server Error"}, status=500)
-
-
-@api_view(["POST"])
-def submit_dealer_list(request):
-    try:
-        dealers = request.data.get("dealers", [])
-
-        if not dealers:
-            return Response({"error": "No dealers found"}, status=400)
-
-        rows = []
-
-        for d in dealers:
-            rows.append([
-                d.get("dealer_name", ""),
-                d.get("shop_name", ""),
-                d.get("mobile", ""),
-                d.get("block", ""),
-                d.get("district", ""),
-                d.get("quantity", ""),
-                d.get("pin_code", ""),
-
-                # ⭐ NEW SPECIAL FIELDS ⭐
-                d.get("designation", ""), 
-                d.get("your_name", ""),
-                d.get("super_stockist_name", ""),
-                d.get("super_stockist_crm", ""),
-                d.get("distributor_name", ""),
-
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # timestamp
-            ])
-
-        # Google Sheet Page Name
-        write_to_sheet(
-            settings.SHEET_ID_NEW,
-            "abc",
-            rows
-        )
-
-        return Response({"success": True, "message": "Dealers submitted successfully"})
-
-    except Exception as e:
-        logger.error(f"Dealer submit error: {str(e)}", exc_info=True)
-        return Response({"error": "Internal Server Error"}, status=500)
-
-
-
 class DispatchOrderListView(ListAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = DispatchOrderSerializer
@@ -1056,18 +1033,6 @@ class UploadDispatchExcel(APIView):
             "failed": len(errors),
             "errors": errors[:20]  # only first 20 errors
         })
-
-from datetime import datetime, timedelta
-
-from django.http import HttpResponse
-from django.utils import timezone
-
-from openpyxl import Workbook
-
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-
-from orders.models import SSOrder, CRMVerifiedOrder
 
 
 @api_view(["GET"])
@@ -1305,3 +1270,5 @@ def hr_update_order_notes(request, pk):
             "notes": order.notes,
         }
     )
+
+

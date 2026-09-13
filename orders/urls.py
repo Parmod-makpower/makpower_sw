@@ -1,6 +1,6 @@
 
 from django.urls import path
-from .views import SSOrderCreateView, CRMOrderListView, CRMOrderVerifyView,FinalOrderHistoryView, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderBulkDeleteView, AddItemToCRMVerifiedOrderView, CRMVerifiedItemUpdateView, CRMVerifiedItemDeleteView, hold_order, reject_order, CombinedOrderTrackView, list_orders_by_role, submit_meet_form, submit_dealer_list,DeleteAllDispatchOrders, SimpleSSOrderCreateView,DispatchOrderListView, UploadDispatchExcel, DownloadDispatchExcel, DeleteSelectedDispatchOrders, FinalOrderDetailsView, download_orders_report, hr_orders, hr_update_order_notes
+from .views import SSOrderCreateView, CRMOrderListView, CRMOrderVerifyView,FinalOrderHistoryView, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderBulkDeleteView, AddItemToCRMVerifiedOrderView, CRMVerifiedItemUpdateView, CRMVerifiedItemDeleteView, hold_order, reject_order, CombinedOrderTrackView, list_orders_by_role, DeleteAllDispatchOrders, SimpleSSOrderCreateView,DispatchOrderListView, UploadDispatchExcel, DownloadDispatchExcel, DeleteSelectedDispatchOrders, FinalOrderDetailsView, download_orders_report, hr_orders, hr_update_order_notes
 
 
 urlpatterns = [
@@ -34,9 +34,7 @@ urlpatterns = [
 
 
     path("ss-orders/simple-create/", SimpleSSOrderCreateView.as_view()),
-    path("submit-meet-form/", submit_meet_form, name="submit_meet_form"),
-    path("submit-dealers/", submit_dealer_list),
-
+   
 
     path("hr/orders/",hr_orders, name="hr_orders",),
     path("hr/orders/<int:pk>/notes/",hr_update_order_notes, name="hr_update_order_notes",),
