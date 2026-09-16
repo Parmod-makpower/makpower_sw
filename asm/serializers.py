@@ -1,10 +1,10 @@
 from rest_framework import serializers
 
-from accounts.models import CustomUser
 from .models import ASMSSAssignment
 
 
 class ASMSSAssignmentSerializer(serializers.ModelSerializer):
+
     asm_name = serializers.CharField(
         source="asm.name",
         read_only=True,
@@ -74,10 +74,6 @@ class ASMSSAssignmentSerializer(serializers.ModelSerializer):
                 "ss": "SS is required."
             })
 
-        # -----------------------------------------
-        # ROLE VALIDATION
-        # -----------------------------------------
-
         if asm.role != "ASM":
             raise serializers.ValidationError({
                 "asm": "Selected user is not an ASM."
@@ -98,10 +94,6 @@ class ASMSSAssignmentSerializer(serializers.ModelSerializer):
                 "ss": "Selected SS is inactive."
             })
 
-        # -----------------------------------------
-        # CRM OWNERSHIP VALIDATION
-        # -----------------------------------------
-
         if request and request.user.role == "CRM":
 
             if ss.crm_id != request.user.id:
@@ -109,16 +101,10 @@ class ASMSSAssignmentSerializer(serializers.ModelSerializer):
                     "ss": "You can only assign your own SS users."
                 })
 
-            # ASM created by another CRM should not be
-            # assignable by this CRM.
             if asm.created_by_id != request.user.id:
                 raise serializers.ValidationError({
                     "asm": "You can only assign an ASM created by your CRM."
                 })
-
-        # -----------------------------------------
-        # ACTIVE ASSIGNMENT VALIDATION
-        # -----------------------------------------
 
         instance = self.instance
 
@@ -141,39 +127,3 @@ class ASMSSAssignmentSerializer(serializers.ModelSerializer):
             })
 
         return attrs
-
-
-class ASMSSAssignmentListSerializer(serializers.ModelSerializer):
-    """
-    Lightweight serializer for ASM dashboard.
-    Used when we only need assigned SS information.
-    """
-
-    ss_name = serializers.CharField(
-        source="ss.name",
-        read_only=True,
-    )
-    ss_party_name = serializers.CharField(
-        source="ss.party_name",
-        read_only=True,
-    )
-    ss_user_id = serializers.CharField(
-        source="ss.user_id",
-        read_only=True,
-    )
-    ss_mobile = serializers.CharField(
-        source="ss.mobile",
-        read_only=True,
-    )
-
-    class Meta:
-        model = ASMSSAssignment
-        fields = [
-            "id",
-            "ss",
-            "ss_name",
-            "ss_party_name",
-            "ss_user_id",
-            "ss_mobile",
-            "created_at",
-        ]

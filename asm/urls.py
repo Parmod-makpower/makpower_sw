@@ -6,7 +6,6 @@ from .views import (
     ASMSSAssignmentDeactivateView,
     ASMDashboardView,
     ASMSSDetailView,
-    ASMOrderDetailView,
 )
 
 
@@ -34,7 +33,6 @@ urlpatterns = [
         name="asm-assignment-deactivate",
     ),
 
-
     # =====================================================
     # ASM — DASHBOARD
     # =====================================================
@@ -46,22 +44,12 @@ urlpatterns = [
     ),
 
     # =====================================================
-    # ASM — SINGLE SS DETAILS
+    # ASM — SINGLE SS
     # =====================================================
 
     path(
         "ss/<int:ss_id>/",
         ASMSSDetailView.as_view(),
         name="asm-ss-detail",
-    ),
-
-    # =====================================================
-    # ASM — SINGLE ORDER DETAILS
-    # =====================================================
-
-    path(
-        "orders/<str:order_id>/",
-        ASMOrderDetailView.as_view(),
-        name="asm-order-detail",
     ),
 ]

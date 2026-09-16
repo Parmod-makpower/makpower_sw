@@ -1,43 +1,3 @@
-# from rest_framework.views import APIView
-# from rest_framework.decorators import api_view
-# from rest_framework.response import Response
-# from rest_framework.generics import RetrieveAPIView
-# from rest_framework import status
-# from rest_framework import status as drf_status
-# from django.db import transaction
-# from django.db.models import Q
-# from .models import SSOrder, SSOrderItem,CRMVerifiedOrderItem, CRMVerifiedOrder, Product, DispatchOrder
-# from django.contrib.auth import get_user_model
-# from .serializers import SSOrderSerializer,SS_to_CRM_Orders, CRMVerifiedOrderSerializer, VerifiedOrderHistorysSerializer , VerifiedOrderDetailsSerializer, CombinedOrderTrackSerializer, SSOrderSerializerTrack, DispatchOrderSerializer, HROrderListSerializer
-# from rest_framework.permissions import IsAuthenticated
-# from datetime import datetime, timedelta
-# from rest_framework.generics import ListAPIView
-# from django.shortcuts import get_object_or_404
-# from .utils import send_whatsapp_template
-# from django.db import transaction
-# from orders.models import PendingOrderItemSnapshot
-# from products.utils import recalculate_virtual_stock
-# from django.conf import settings
-# from products.utils import write_to_sheet
-# from datetime import datetime, timedelta
-
-# from django.http import HttpResponse
-# from django.utils import timezone
-
-# from openpyxl import Workbook
-
-# from rest_framework.decorators import api_view, permission_classes
-# from rest_framework.permissions import IsAuthenticated
-
-# from orders.models import SSOrder, CRMVerifiedOrder
-# import openpyxl
-# from django.utils import timezone
-# from rest_framework.parsers import MultiPartParser
-# from rest_framework import status
-# from .models import DispatchOrder
-# from django.http import HttpResponse
-# from rest_framework.views import APIView
-# import logging
 
 from rest_framework.views import APIView
 from rest_framework.decorators import api_view, permission_classes
@@ -801,24 +761,78 @@ def list_orders_by_role(request):
     return Response(serializer.data)
 
 
+# class CombinedOrderTrackView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request, order_id):
+#         user = request.user
+
+#         try:
+#             order = SSOrder.objects.get(order_id=order_id)
+#         except SSOrder.DoesNotExist:
+#             return Response({"error": "Order not found"}, status=404)
+
+#         # ✅ CRM apne assigned orders hi dekhega
+#         if not (user.is_staff or user.is_superuser):
+#             if order.assigned_crm != user and order.ss_user != user:
+#                 return Response({"error": "Not authorized"}, status=403)
+
+
+#         data = CombinedOrderTrackSerializer(order).data
+#         return Response(data, status=200)
+
 class CombinedOrderTrackView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, order_id):
         user = request.user
 
+        print("🔍 TRACK ORDER ID RECEIVED:", repr(order_id))
+
         try:
-            order = SSOrder.objects.get(order_id=order_id)
+            order = SSOrder.objects.select_related(
+                "ss_user",
+                "assigned_crm"
+            ).get(order_id=order_id)
+
+            print("✅ ORDER FOUND:", order.id, order.order_id)
+
         except SSOrder.DoesNotExist:
-            return Response({"error": "Order not found"}, status=404)
+            return Response(
+                {"error": "Order not found"},
+                status=404
+            )
 
-        # ✅ CRM apne assigned orders hi dekhega
-        if not (user.is_staff or user.is_superuser):
-            if order.assigned_crm != user and order.ss_user != user:
-                return Response({"error": "Not authorized"}, status=403)
+        # ADMIN / STAFF / SUPERUSER
+        if user.is_staff or user.is_superuser:
+            pass
 
+        # ASM
+        elif user.role == "ASM":
+            from asm.models import ASMSSAssignment
+
+            assigned = ASMSSAssignment.objects.filter(
+                asm=user,
+                ss=order.ss_user,
+                is_active=True,
+                ss__is_active=True,
+            ).exists()
+
+            if not assigned:
+                return Response(
+                    {"error": "Not authorized"},
+                    status=403
+                )
+
+        # CRM / SS
+        elif order.assigned_crm != user and order.ss_user != user:
+            return Response(
+                {"error": "Not authorized"},
+                status=403
+            )
 
         data = CombinedOrderTrackSerializer(order).data
+
         return Response(data, status=200)
 
 class UpdateOrderStatusView(APIView):
