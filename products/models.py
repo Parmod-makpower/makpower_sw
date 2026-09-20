@@ -35,6 +35,74 @@ class SaleName(models.Model):
     def __str__(self):
         return f"{self.sale_name} for {self.product.product_name}"
     
+class ProductPriceHistory(models.Model):
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.PROTECT,
+        related_name="price_history",
+        db_index=True
+    )
+
+    # Price before this change
+    old_price = models.CharField(
+        max_length=10,
+        null=True,
+        blank=True
+    )
+
+    # Price after this change
+    new_price = models.CharField(
+        max_length=10,
+        null=True,
+        blank=True
+    )
+
+    # Distributor price before this change
+    old_ds_price = models.CharField(
+        max_length=10,
+        null=True,
+        blank=True
+    )
+
+    # Distributor price after this change
+    new_ds_price = models.CharField(
+        max_length=10,
+        null=True,
+        blank=True
+    )
+
+    # User who actually performed the change
+    changed_by = models.ForeignKey(
+        'accounts.CustomUser',
+        on_delete=models.PROTECT,
+        related_name="product_price_changes"
+    )
+
+    # Actual date/time when user changed the price
+    changed_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True
+    )
+
+    # Business date from which this price should be considered applicable
+    applicable_from = models.DateField(
+        db_index=True
+    )
+
+    # Optional reason entered by ADMIN/CRM
+    reason = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True
+    )
+
+    def __str__(self):
+        return (
+            f"{self.product.product_id} - "
+            f"{self.old_price} → {self.new_price}"
+        )
+
+
 
 class Scheme(models.Model):
     created_by = models.CharField(max_length=100)

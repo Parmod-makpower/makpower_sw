@@ -1,6 +1,14 @@
 from rest_framework import serializers
-from .models import  Product, SaleName, Scheme, SchemeCondition, SchemeReward
+# from .models import  Product, SaleName, Scheme, SchemeCondition, SchemeReward
 
+from .models import (
+    Product,
+    SaleName,
+    Scheme,
+    SchemeCondition,
+    SchemeReward,
+    ProductPriceHistory,
+)
 
 class ProductSerializer(serializers.ModelSerializer):
     sale_names = serializers.SerializerMethodField()
@@ -62,6 +70,97 @@ class SaleNameSerializer(serializers.ModelSerializer):
         model = SaleName
         fields = "__all__"
 
+
+class PriceUpdateItemSerializer(serializers.Serializer):
+    product_id = serializers.IntegerField()
+    new_price = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True
+    )
+    new_ds_price = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True
+    )
+
+    def validate(self, attrs):
+        if 'new_price' not in attrs and 'new_ds_price' not in attrs:
+            raise serializers.ValidationError(
+                "At least one of new_price or new_ds_price is required."
+            )
+
+        return attrs
+
+
+class BulkPriceUpdateSerializer(serializers.Serializer):
+    applicable_from = serializers.DateField(required=True)
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=255
+    )
+    items = PriceUpdateItemSerializer(
+        many=True,
+        required=True
+    )
+
+    def validate_items(self, value):
+        if not value:
+            raise serializers.ValidationError(
+                "At least one product is required."
+            )
+
+        product_ids = [item['product_id'] for item in value]
+
+        if len(product_ids) != len(set(product_ids)):
+            raise serializers.ValidationError(
+                "Duplicate product_id found in items."
+            )
+
+        return value
+
+
+class ProductPriceHistorySerializer(serializers.ModelSerializer):
+    product_id = serializers.IntegerField(
+        source='product.product_id',
+        read_only=True
+    )
+    product_name = serializers.CharField(
+        source='product.product_name',
+        read_only=True
+    )
+    changed_by_user_id = serializers.CharField(
+        source='changed_by.user_id',
+        read_only=True
+    )
+    changed_by_name = serializers.CharField(
+        source='changed_by.name',
+        read_only=True
+    )
+    changed_by_role = serializers.CharField(
+        source='changed_by.role',
+        read_only=True
+    )
+
+    class Meta:
+        model = ProductPriceHistory
+        fields = [
+            'id',
+            'product_id',
+            'product_name',
+            'old_price',
+            'new_price',
+            'old_ds_price',
+            'new_ds_price',
+            'changed_by_user_id',
+            'changed_by_name',
+            'changed_by_role',
+            'changed_at',
+            'applicable_from',
+            'reason',
+        ]
 
 class SchemeConditionSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source='product.product_name', read_only=True)

@@ -9,12 +9,33 @@ from rest_framework.response import Response
 from django.http import HttpResponse
 from rest_framework.decorators import api_view
 from django.db import transaction
+# from rest_framework.permissions import IsAuthenticated
 from rest_framework.permissions import IsAuthenticated
+from accounts.permissions import IsCRMOrAdmin
+from django.db import transaction
+from django.db.models import Q
+
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
 from orders.models import  PendingOrderItemSnapshot, CRMVerifiedOrderItem, DispatchOrder
-from .models import  Product, SaleName, Scheme
-from .serializers import (  ProductSerializer, SaleNameSerializer,SchemeSerializer, ProductWithSaleNameSerializer)
+# from .models import  Product, SaleName, Scheme
+from .models import (
+    Product,
+    SaleName,
+    Scheme,
+    ProductPriceHistory,
+)
+
+# from .serializers import (  ProductSerializer, SaleNameSerializer,SchemeSerializer, ProductWithSaleNameSerializer)
+from .serializers import (
+    ProductSerializer,
+    SaleNameSerializer,
+    SchemeSerializer,
+    ProductWithSaleNameSerializer,
+    BulkPriceUpdateSerializer,
+    ProductPriceHistorySerializer,
+)
+
 
 
 class ProductViewSet(viewsets.ModelViewSet):
@@ -149,6 +170,302 @@ class ProductBulkUpload(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=400)
 
+
+# =========================================================
+# PRICE MANAGEMENT - BULK PRICE UPDATE
+# =========================================================
+
+class BulkPriceUpdateView(APIView):
+    permission_classes = [IsAuthenticated, IsCRMOrAdmin]
+
+    def post(self, request):
+        serializer = BulkPriceUpdateSerializer(
+            data=request.data
+        )
+
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        validated_data = serializer.validated_data
+
+        items = validated_data["items"]
+        applicable_from = validated_data["applicable_from"]
+        reason = validated_data.get("reason")
+
+        product_ids = [
+            item["product_id"]
+            for item in items
+        ]
+
+        updated_products = []
+        history_created = 0
+        unchanged_products = []
+
+        try:
+            with transaction.atomic():
+
+                # Lock products during update.
+                # This prevents concurrent price updates
+                # from creating inconsistent history.
+                products = (
+                    Product.objects
+                    .select_for_update()
+                    .filter(
+                        product_id__in=product_ids
+                    )
+                )
+
+                product_map = {
+                    product.product_id: product
+                    for product in products
+                }
+
+                missing_ids = [
+                    product_id
+                    for product_id in product_ids
+                    if product_id not in product_map
+                ]
+
+                if missing_ids:
+                    return Response(
+                        {
+                            "error": (
+                                "Some products were not found."
+                            ),
+                            "missing_product_ids": missing_ids,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # -------------------------------------------------
+                # UPDATE EACH PRODUCT
+                # -------------------------------------------------
+
+                for item in items:
+
+                    product_id = item["product_id"]
+
+                    product = product_map[
+                        product_id
+                    ]
+
+                    old_price = product.price
+                    old_ds_price = product.ds_price
+
+                    # If a field is not supplied,
+                    # keep the existing value.
+                    new_price = (
+                        item["new_price"]
+                        if "new_price" in item
+                        else old_price
+                    )
+
+                    new_ds_price = (
+                        item["new_ds_price"]
+                        if "new_ds_price" in item
+                        else old_ds_price
+                    )
+
+                    # Convert blank strings to None.
+                    if new_price == "":
+                        new_price = None
+
+                    if new_ds_price == "":
+                        new_ds_price = None
+
+                    # -------------------------------------------------
+                    # NO ACTUAL CHANGE
+                    # -------------------------------------------------
+
+                    if (
+                        old_price == new_price
+                        and
+                        old_ds_price == new_ds_price
+                    ):
+                        unchanged_products.append(
+                            product_id
+                        )
+
+                        continue
+
+                    # -------------------------------------------------
+                    # CREATE PRICE HISTORY
+                    # -------------------------------------------------
+
+                    ProductPriceHistory.objects.create(
+                        product=product,
+
+                        old_price=old_price,
+                        new_price=new_price,
+
+                        old_ds_price=old_ds_price,
+                        new_ds_price=new_ds_price,
+
+                        changed_by=request.user,
+
+                        applicable_from=applicable_from,
+
+                        reason=reason,
+                    )
+
+                    # -------------------------------------------------
+                    # UPDATE LIVE PRODUCT PRICE
+                    # -------------------------------------------------
+
+                    product.price = new_price
+                    product.ds_price = new_ds_price
+
+                    product.save(
+                        update_fields=[
+                            "price",
+                            "ds_price",
+                        ]
+                    )
+
+                    # -------------------------------------------------
+                    # RESPONSE DATA
+                    # -------------------------------------------------
+
+                    updated_products.append(
+                        {
+                            "product_id":
+                                product.product_id,
+
+                            "old_price":
+                                old_price,
+
+                            "new_price":
+                                new_price,
+
+                            "old_ds_price":
+                                old_ds_price,
+
+                            "new_ds_price":
+                                new_ds_price,
+                        }
+                    )
+
+                    history_created += 1
+
+            # =========================================================
+            # SUCCESS RESPONSE
+            # =========================================================
+
+            return Response(
+                {
+                    "message": (
+                        "Price update completed successfully."
+                    ),
+
+                    "updated_count":
+                        len(updated_products),
+
+                    "history_created":
+                        history_created,
+
+                    "unchanged_count":
+                        len(unchanged_products),
+
+                    "updated_products":
+                        updated_products,
+
+                    "unchanged_product_ids":
+                        unchanged_products,
+
+                    "applicable_from":
+                        applicable_from,
+
+                    "changed_by":
+                        request.user.user_id,
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+
+            return Response(
+                {
+                    "error":
+                        "Price update failed.",
+
+                    "detail":
+                        str(e),
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+# =========================================================
+# PRICE HISTORY
+# =========================================================
+
+class ProductPriceHistoryListView(APIView):
+    permission_classes = [IsAuthenticated, IsCRMOrAdmin]
+
+    def get(self, request):
+
+        product_id = request.query_params.get(
+            "product_id"
+        )
+
+        search = request.query_params.get(
+            "search",
+            ""
+        ).strip()
+
+        history = (
+            ProductPriceHistory.objects
+            .select_related(
+                "product",
+                "changed_by"
+            )
+            .order_by("-changed_at")
+        )
+
+        # -------------------------------------------------
+        # PRODUCT FILTER
+        # -------------------------------------------------
+
+        if product_id:
+            history = history.filter(
+                product__product_id=product_id
+            )
+
+        # -------------------------------------------------
+        # SEARCH
+        # -------------------------------------------------
+
+        if search:
+            history = history.filter(
+                Q(
+                    product__product_name__icontains=search
+                )
+                |
+                Q(
+                    product__product_id__icontains=search
+                )
+                |
+                Q(
+                    changed_by__user_id__icontains=search
+                )
+                |
+                Q(
+                    changed_by__name__icontains=search
+                )
+            )
+
+        serializer = ProductPriceHistorySerializer(
+            history,
+            many=True
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK
+        )
 
 class SaleNamePagination(PageNumberPagination):
     page_size = 10  # default
