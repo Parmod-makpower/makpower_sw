@@ -175,6 +175,10 @@ class ProductBulkUpload(APIView):
 # PRICE MANAGEMENT - BULK PRICE UPDATE
 # =========================================================
 
+# =========================================================
+# PRICE MANAGEMENT - BULK PRICE UPDATE
+# =========================================================
+
 class BulkPriceUpdateView(APIView):
     permission_classes = [IsAuthenticated, IsCRMOrAdmin]
 
@@ -207,9 +211,6 @@ class BulkPriceUpdateView(APIView):
         try:
             with transaction.atomic():
 
-                # Lock products during update.
-                # This prevents concurrent price updates
-                # from creating inconsistent history.
                 products = (
                     Product.objects
                     .select_for_update()
@@ -254,9 +255,12 @@ class BulkPriceUpdateView(APIView):
 
                     old_price = product.price
                     old_ds_price = product.ds_price
+                    old_dlr_price = product.dlr_price
 
-                    # If a field is not supplied,
-                    # keep the existing value.
+                    # -------------------------------------------------
+                    # KEEP OLD VALUE IF FIELD NOT PROVIDED
+                    # -------------------------------------------------
+
                     new_price = (
                         item["new_price"]
                         if "new_price" in item
@@ -269,12 +273,24 @@ class BulkPriceUpdateView(APIView):
                         else old_ds_price
                     )
 
-                    # Convert blank strings to None.
+                    new_dlr_price = (
+                        item["new_dlr_price"]
+                        if "new_dlr_price" in item
+                        else old_dlr_price
+                    )
+
+                    # -------------------------------------------------
+                    # BLANK → NONE
+                    # -------------------------------------------------
+
                     if new_price == "":
                         new_price = None
 
                     if new_ds_price == "":
                         new_ds_price = None
+
+                    if new_dlr_price == "":
+                        new_dlr_price = None
 
                     # -------------------------------------------------
                     # NO ACTUAL CHANGE
@@ -284,11 +300,12 @@ class BulkPriceUpdateView(APIView):
                         old_price == new_price
                         and
                         old_ds_price == new_ds_price
+                        and
+                        old_dlr_price == new_dlr_price
                     ):
                         unchanged_products.append(
                             product_id
                         )
-
                         continue
 
                     # -------------------------------------------------
@@ -304,6 +321,9 @@ class BulkPriceUpdateView(APIView):
                         old_ds_price=old_ds_price,
                         new_ds_price=new_ds_price,
 
+                        old_dlr_price=old_dlr_price,
+                        new_dlr_price=new_dlr_price,
+
                         changed_by=request.user,
 
                         applicable_from=applicable_from,
@@ -312,16 +332,18 @@ class BulkPriceUpdateView(APIView):
                     )
 
                     # -------------------------------------------------
-                    # UPDATE LIVE PRODUCT PRICE
+                    # UPDATE LIVE PRODUCT
                     # -------------------------------------------------
 
                     product.price = new_price
                     product.ds_price = new_ds_price
+                    product.dlr_price = new_dlr_price
 
                     product.save(
                         update_fields=[
                             "price",
                             "ds_price",
+                            "dlr_price",
                         ]
                     )
 
@@ -345,6 +367,12 @@ class BulkPriceUpdateView(APIView):
 
                             "new_ds_price":
                                 new_ds_price,
+
+                            "old_dlr_price":
+                                old_dlr_price,
+
+                            "new_dlr_price":
+                                new_dlr_price,
                         }
                     )
 
@@ -396,7 +424,6 @@ class BulkPriceUpdateView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
-
 
 # =========================================================
 # PRICE HISTORY

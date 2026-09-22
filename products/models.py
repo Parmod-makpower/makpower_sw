@@ -12,6 +12,7 @@ class Product(models.Model):
     guarantee = models.CharField(max_length=50, null=True, blank=True)
     price = models.CharField(max_length=10, null=True, blank=True)
     ds_price = models.CharField(max_length=10, null=True, blank=True)
+    dlr_price = models.CharField(max_length=10, null=True, blank=True)
     moq = models.IntegerField(null=True, blank=True)
     live_stock = models.IntegerField(null=True, blank=True)
     virtual_stock = models.IntegerField(null=True, blank=True, default=0) 
@@ -35,7 +36,12 @@ class SaleName(models.Model):
     def __str__(self):
         return f"{self.sale_name} for {self.product.product_name}"
     
+# =========================================================
+# PRODUCT PRICE HISTORY
+# =========================================================
+
 class ProductPriceHistory(models.Model):
+
     product = models.ForeignKey(
         Product,
         on_delete=models.PROTECT,
@@ -43,53 +49,85 @@ class ProductPriceHistory(models.Model):
         db_index=True
     )
 
-    # Price before this change
+    # -----------------------------------------------------
+    # SS PRICE
+    # -----------------------------------------------------
+
     old_price = models.CharField(
         max_length=10,
         null=True,
         blank=True
     )
 
-    # Price after this change
     new_price = models.CharField(
         max_length=10,
         null=True,
         blank=True
     )
 
-    # Distributor price before this change
+    # -----------------------------------------------------
+    # DS PRICE
+    # -----------------------------------------------------
+
     old_ds_price = models.CharField(
         max_length=10,
         null=True,
         blank=True
     )
 
-    # Distributor price after this change
     new_ds_price = models.CharField(
         max_length=10,
         null=True,
         blank=True
     )
 
-    # User who actually performed the change
+    # -----------------------------------------------------
+    # DLR PRICE
+    # -----------------------------------------------------
+
+    old_dlr_price = models.CharField(
+        max_length=10,
+        null=True,
+        blank=True
+    )
+
+    new_dlr_price = models.CharField(
+        max_length=10,
+        null=True,
+        blank=True
+    )
+
+    # -----------------------------------------------------
+    # USER
+    # -----------------------------------------------------
+
     changed_by = models.ForeignKey(
         'accounts.CustomUser',
         on_delete=models.PROTECT,
         related_name="product_price_changes"
     )
 
-    # Actual date/time when user changed the price
+    # -----------------------------------------------------
+    # TIMESTAMP
+    # -----------------------------------------------------
+
     changed_at = models.DateTimeField(
         auto_now_add=True,
         db_index=True
     )
 
-    # Business date from which this price should be considered applicable
+    # -----------------------------------------------------
+    # BUSINESS EFFECTIVE DATE
+    # -----------------------------------------------------
+
     applicable_from = models.DateField(
         db_index=True
     )
 
-    # Optional reason entered by ADMIN/CRM
+    # -----------------------------------------------------
+    # REASON
+    # -----------------------------------------------------
+
     reason = models.CharField(
         max_length=255,
         blank=True,
@@ -101,7 +139,6 @@ class ProductPriceHistory(models.Model):
             f"{self.product.product_id} - "
             f"{self.old_price} → {self.new_price}"
         )
-
 
 
 class Scheme(models.Model):
