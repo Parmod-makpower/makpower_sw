@@ -25,7 +25,6 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     LoginView,
     SSUserViewSet,
-    UserHierarchyView,
     SSUserListView,
     CustomTokenRefreshView,
     SessionCheckView,
@@ -53,11 +52,6 @@ urlpatterns = [
 
     path('', include(router.urls)),
 
-    path(
-        'hierarchy/',
-        UserHierarchyView.as_view(),
-        name='admin-dashboard'
-    ),
 
     path(
         'users/ss/',
