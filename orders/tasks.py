@@ -35,7 +35,11 @@ def auto_hold_old_orders():
 
                 # ✅ HOLD
                 order.status = "HOLD"
-                order.notes = "Auto HOLD after 3 days"
+
+                # ✅ Only add Auto HOLD remark if notes is blank
+                if not order.notes or not order.notes.strip():
+                    order.notes = "Auto HOLD after 3 days"
+
                 order.save()
 
                 print(f"{order.order_id} moved to HOLD")
