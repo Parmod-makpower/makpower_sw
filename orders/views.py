@@ -980,6 +980,89 @@ class DownloadDispatchExcel(APIView):
         return response
 
 
+# class UploadDispatchExcel(APIView):
+#     permission_classes = [IsAuthenticated]
+#     parser_classes = [MultiPartParser]
+
+#     def post(self, request):
+#         file = request.FILES.get("file")
+
+#         if not file:
+#             return Response({"error": "Excel file required"}, status=400)
+
+#         wb = openpyxl.load_workbook(file)
+#         ws = wb.active
+
+#         created = 0
+#         errors = []
+#         objects = []
+
+#         for index, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+
+#             order_id = row[0] if len(row) > 0 else None
+#             product = row[1] if len(row) > 1 else None
+#             quantity = row[2] if len(row) > 2 else None
+#             packed_time = row[3] if len(row) > 3 else None
+
+#             # ❌ VALIDATION
+#             if not order_id or not product:
+#                 errors.append(f"Row {index}: Missing order_id/product")
+#                 continue
+
+#             if not quantity or int(quantity) <= 0:
+#                 errors.append(f"Row {index}: Invalid quantity")
+#                 continue
+
+#             # ✅ DATE HANDLE
+#             try:
+#                 if isinstance(packed_time, datetime):
+#                     final_time = packed_time
+#                 elif isinstance(packed_time, str):
+#                     final_time = datetime.strptime(
+#                         packed_time.strip(), "%d-%m-%Y %H:%M"
+#                     )
+#                 else:
+#                     final_time = timezone.now()
+#             except:
+#                 final_time = timezone.now()
+
+#             objects.append(
+#                 DispatchOrder(
+#                     order_id=str(order_id).strip(),
+#                     product=str(product).strip(),
+#                     quantity=int(quantity),
+#                     order_packed_time=final_time
+#                 )
+#             )
+
+#         # 🚀 BULK INSERT (FAST)
+#         with transaction.atomic():
+#             DispatchOrder.objects.bulk_create(objects, batch_size=1000)
+
+#         created = len(objects)
+
+#         return Response({
+#             "message": "Upload completed",
+#             "created": created,
+#             "failed": len(errors),
+#             "errors": errors[:20]  # only first 20 errors
+#         })
+
+
+
+# from datetime import datetime
+
+# import openpyxl
+
+# from django.db import transaction
+# from django.utils import timezone
+
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from rest_framework.permissions import IsAuthenticated
+# from rest_framework.parsers import MultiPartParser
+
+
 class UploadDispatchExcel(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser]
@@ -988,66 +1071,285 @@ class UploadDispatchExcel(APIView):
         file = request.FILES.get("file")
 
         if not file:
-            return Response({"error": "Excel file required"}, status=400)
+            return Response(
+                {
+                    "message": "Excel file required",
+                    "created": 0,
+                    "failed": 0,
+                    "errors": [],
+                },
+                status=400,
+            )
 
-        wb = openpyxl.load_workbook(file)
-        ws = wb.active
+        # ---------------------------------------------------------
+        # LOAD EXCEL
+        # ---------------------------------------------------------
+        try:
+            wb = openpyxl.load_workbook(
+                file,
+                read_only=True,
+                data_only=True,
+            )
 
-        created = 0
-        errors = []
+            ws = wb.active
+
+        except Exception as exc:
+            return Response(
+                {
+                    "message": "Invalid Excel file",
+                    "created": 0,
+                    "failed": 0,
+                    "errors": [
+                        f"Excel file could not be opened: {str(exc)}"
+                    ],
+                },
+                status=400,
+            )
+
         objects = []
+        errors = []
 
-        for index, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        total_rows = 0
+        skipped_blank_rows = 0
 
-            order_id = row[0] if len(row) > 0 else None
-            product = row[1] if len(row) > 1 else None
-            quantity = row[2] if len(row) > 2 else None
-            packed_time = row[3] if len(row) > 3 else None
+        # ---------------------------------------------------------
+        # HELPERS
+        # ---------------------------------------------------------
+        def clean_text(value):
+            if value is None:
+                return ""
 
-            # ❌ VALIDATION
-            if not order_id or not product:
-                errors.append(f"Row {index}: Missing order_id/product")
-                continue
+            return str(value).strip()
 
-            if not quantity or int(quantity) <= 0:
-                errors.append(f"Row {index}: Invalid quantity")
-                continue
+        def parse_quantity(value):
+            """
+            Safely convert Excel quantity into positive integer.
+            """
 
-            # ✅ DATE HANDLE
+            if value is None:
+                return None
+
+            if isinstance(value, bool):
+                return None
+
+            if isinstance(value, int):
+                return value if value > 0 else None
+
+            if isinstance(value, float):
+                if value <= 0:
+                    return None
+
+                if not value.is_integer():
+                    return None
+
+                return int(value)
+
+            text = str(value).strip()
+
+            if not text:
+                return None
+
             try:
-                if isinstance(packed_time, datetime):
-                    final_time = packed_time
-                elif isinstance(packed_time, str):
-                    final_time = datetime.strptime(
-                        packed_time.strip(), "%d-%m-%Y %H:%M"
-                    )
-                else:
-                    final_time = timezone.now()
-            except:
-                final_time = timezone.now()
+                number = float(text)
 
+                if number <= 0:
+                    return None
+
+                if not number.is_integer():
+                    return None
+
+                return int(number)
+
+            except (ValueError, TypeError):
+                return None
+
+        def parse_packed_time(value):
+            """
+            Supports:
+            - Excel datetime
+            - DD-MM-YYYY HH:MM
+            - DD-MM-YYYY HH:MM:SS
+            - DD/MM/YYYY HH:MM
+            - DD/MM/YYYY HH:MM:SS
+            - YYYY-MM-DD HH:MM
+            - YYYY-MM-DD HH:MM:SS
+
+            Invalid/blank date is treated as an error.
+            """
+
+            if value is None:
+                return None
+
+            # Excel native datetime
+            if isinstance(value, datetime):
+                return value
+
+            text = str(value).strip()
+
+            if not text:
+                return None
+
+            formats = [
+                "%d-%m-%Y %H:%M",
+                "%d-%m-%Y %H:%M:%S",
+                "%d/%m/%Y %H:%M",
+                "%d/%m/%Y %H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y-%m-%d %H:%M:%S",
+            ]
+
+            for fmt in formats:
+                try:
+                    return datetime.strptime(text, fmt)
+                except ValueError:
+                    continue
+
+            return None
+
+        # ---------------------------------------------------------
+        # READ ROWS
+        # ---------------------------------------------------------
+        for index, row in enumerate(
+            ws.iter_rows(
+                min_row=2,
+                values_only=True
+            ),
+            start=2,
+        ):
+            total_rows += 1
+
+            # Make sure row has at least 4 columns
+            row = list(row)
+
+            while len(row) < 4:
+                row.append(None)
+
+            order_id = row[0]
+            product = row[1]
+            quantity = row[2]
+            packed_time = row[3]
+
+            clean_order_id = clean_text(order_id)
+            clean_product = clean_text(product)
+
+            # -----------------------------------------------------
+            # BLANK ROW
+            # -----------------------------------------------------
+            if (
+                not clean_order_id
+                and not clean_product
+                and quantity in (None, "")
+                and packed_time in (None, "")
+            ):
+                skipped_blank_rows += 1
+                continue
+
+            # -----------------------------------------------------
+            # ORDER ID VALIDATION
+            # -----------------------------------------------------
+            if not clean_order_id:
+                errors.append(
+                    f"Row {index}: Missing Order ID"
+                )
+                continue
+
+            # -----------------------------------------------------
+            # PRODUCT VALIDATION
+            # -----------------------------------------------------
+            if not clean_product:
+                errors.append(
+                    f"Row {index}: Missing Product"
+                )
+                continue
+
+            # -----------------------------------------------------
+            # QUANTITY VALIDATION
+            # -----------------------------------------------------
+            final_quantity = parse_quantity(quantity)
+
+            if final_quantity is None:
+                errors.append(
+                    f"Row {index}: Invalid Quantity "
+                    f"({quantity!r})"
+                )
+                continue
+
+            # -----------------------------------------------------
+            # PACKED TIME VALIDATION
+            # -----------------------------------------------------
+            final_time = parse_packed_time(packed_time)
+
+            if final_time is None:
+                errors.append(
+                    f"Row {index}: Invalid Packed Time "
+                    f"({packed_time!r})"
+                )
+                continue
+
+            # -----------------------------------------------------
+            # CREATE OBJECT FOR BULK INSERT
+            # -----------------------------------------------------
             objects.append(
                 DispatchOrder(
-                    order_id=str(order_id).strip(),
-                    product=str(product).strip(),
-                    quantity=int(quantity),
-                    order_packed_time=final_time
+                    order_id=clean_order_id[:20],
+                    product=clean_product[:100],
+                    quantity=final_quantity,
+                    order_packed_time=final_time,
                 )
             )
 
-        # 🚀 BULK INSERT (FAST)
-        with transaction.atomic():
-            DispatchOrder.objects.bulk_create(objects, batch_size=1000)
+        # ---------------------------------------------------------
+        # BULK INSERT
+        # ---------------------------------------------------------
+        created = 0
 
-        created = len(objects)
+        try:
+            if objects:
+                with transaction.atomic():
+                    DispatchOrder.objects.bulk_create(
+                        objects,
+                        batch_size=1000,
+                    )
 
-        return Response({
-            "message": "Upload completed",
-            "created": created,
-            "failed": len(errors),
-            "errors": errors[:20]  # only first 20 errors
-        })
+                created = len(objects)
 
+        except Exception as exc:
+            return Response(
+                {
+                    "message": "Database error while uploading",
+                    "created": 0,
+                    "failed": total_rows - skipped_blank_rows,
+                    "total_rows": total_rows,
+                    "errors": [
+                        f"Database error: {str(exc)}"
+                    ],
+                },
+                status=500,
+            )
+
+        # ---------------------------------------------------------
+        # FINAL RESPONSE
+        # ---------------------------------------------------------
+        failed = len(errors)
+
+        return Response(
+            {
+                "message": "Upload completed",
+
+                "total_rows": total_rows,
+
+                "created": created,
+
+                "failed": failed,
+
+                "blank_rows": skipped_blank_rows,
+
+                # Full error list
+                # Frontend can show all failed rows.
+                "errors": errors,
+            },
+            status=200,
+        )
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
