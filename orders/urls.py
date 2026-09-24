@@ -1,6 +1,6 @@
 
 from django.urls import path
-from .views import SSOrderCreateView, CRMOrderListView, CRMOrderVerifyView,FinalOrderHistoryView, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderBulkDeleteView, AddItemToCRMVerifiedOrderView, CRMVerifiedItemUpdateView, CRMVerifiedItemDeleteView, hold_order, reject_order, CombinedOrderTrackView, list_orders_by_role, DeleteAllDispatchOrders, SimpleSSOrderCreateView,DispatchOrderListView, UploadDispatchExcel, DownloadDispatchExcel, DeleteSelectedDispatchOrders, FinalOrderDetailsView, download_orders_report, hr_orders, hr_update_order_notes
+from .views import SSOrderCreateView, CRMOrderListView, CRMOrderVerifyView,FinalOrderHistoryView, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderBulkDeleteView, AddItemToCRMVerifiedOrderView, CRMVerifiedItemUpdateView, CRMVerifiedItemDeleteView, hold_order, reject_order, CombinedOrderTrackView, list_orders_by_role, DeleteAllDispatchOrders, SimpleSSOrderCreateView,DispatchOrderListView, UploadDispatchExcel, DownloadDispatchExcel, DeleteSelectedDispatchOrders, FinalOrderDetailsView, download_orders_report, hr_orders, hr_update_order_notes, DispatchExcelUploadView, OrderRecordsListView,  OrderRecordDetailView
 
 
 urlpatterns = [
@@ -38,4 +38,20 @@ urlpatterns = [
 
     path("hr/orders/",hr_orders, name="hr_orders",),
     path("hr/orders/<int:pk>/notes/",hr_update_order_notes, name="hr_update_order_notes",),
+
+
+
+
+    path("dispatch/upload-excel/", DispatchExcelUploadView.as_view(),name="dispatch-upload-excel",),
+
+
+
+# ============================================================================
+# NEW ORDER RECORDS SYSTEM
+# ============================================================================
+
+
+path("order-records/", OrderRecordsListView.as_view(),name="order-records-list",),
+path("order-records/<int:pk>/", OrderRecordDetailView.as_view(), name="order-records-detail",),
+
 ]

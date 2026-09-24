@@ -100,3 +100,87 @@ class PendingOrderItemSnapshot(models.Model):
 
 
 
+
+
+# =========================================================
+# NEW DISPATCH SYSTEM
+# =========================================================
+
+class DispatchRecord(models.Model):
+    """
+    One DispatchRecord = one CRMVerifiedOrderItem.
+
+    Excel mein CRMVerifiedOrderItem.id aayega.
+    Same CRM item dobara aane par existing record update hoga.
+    """
+
+    crm_item = models.OneToOneField(
+        CRMVerifiedOrderItem,
+        on_delete=models.PROTECT,
+        related_name="dispatch_record",
+        db_index=True,
+    )
+
+    quantity = models.PositiveIntegerField()
+
+    dispatch_location = models.CharField(
+        max_length=50,
+        db_index=True
+    )
+
+    order_packed_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_index=True
+    )
+
+    class Meta:
+        ordering = [
+            "-order_packed_time",
+            "-updated_at",
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "dispatch_location",
+                    "order_packed_time",
+                ]
+            ),
+            models.Index(
+                fields=[
+                    "dispatch_location",
+                    "updated_at",
+                ]
+            ),
+            models.Index(
+                fields=[
+                    "order_packed_time",
+                ]
+            ),
+            models.Index(
+                fields=[
+                    "updated_at",
+                ]
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"Dispatch #{self.pk} | "
+            f"CRM Item {self.crm_item_id} | "
+            f"Qty {self.quantity}"
+        )
+
+
+

@@ -980,87 +980,145 @@ class DownloadDispatchExcel(APIView):
         return response
 
 
-# class UploadDispatchExcel(APIView):
+# class DownloadDispatchExcel(APIView):
 #     permission_classes = [IsAuthenticated]
-#     parser_classes = [MultiPartParser]
 
-#     def post(self, request):
-#         file = request.FILES.get("file")
-
-#         if not file:
-#             return Response({"error": "Excel file required"}, status=400)
-
-#         wb = openpyxl.load_workbook(file)
+#     def get(self, request):
+#         wb = openpyxl.Workbook()
 #         ws = wb.active
+#         ws.title = "Dispatch Records"
 
-#         created = 0
-#         errors = []
-#         objects = []
+#         # =====================================================
+#         # HEADER
+#         # =====================================================
 
-#         for index, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+#         ws.append([
+#             "CRM Item ID",
+#             "Order ID",
+#             "Product",
+#             "Quantity",
+#             "Dispatch Location",
+#             "Order Packed Time",
+#         ])
 
-#             order_id = row[0] if len(row) > 0 else None
-#             product = row[1] if len(row) > 1 else None
-#             quantity = row[2] if len(row) > 2 else None
-#             packed_time = row[3] if len(row) > 3 else None
+#         # =====================================================
+#         # FETCH NEW DISPATCH RECORDS
+#         # =====================================================
 
-#             # ❌ VALIDATION
-#             if not order_id or not product:
-#                 errors.append(f"Row {index}: Missing order_id/product")
-#                 continue
+#         records = (
+#             DispatchRecord.objects
+#             .select_related(
+#                 "crm_item",
+#                 "crm_item__product",
+#                 "crm_item__crm_order",
+#                 "crm_item__crm_order__original_order",
+#             )
+#             .order_by(
+#                 "-order_packed_time",
+#                 "-updated_at",
+#             )
+#         )
 
-#             if not quantity or int(quantity) <= 0:
-#                 errors.append(f"Row {index}: Invalid quantity")
-#                 continue
+#         # =====================================================
+#         # DATA
+#         # =====================================================
 
-#             # ✅ DATE HANDLE
-#             try:
-#                 if isinstance(packed_time, datetime):
-#                     final_time = packed_time
-#                 elif isinstance(packed_time, str):
-#                     final_time = datetime.strptime(
-#                         packed_time.strip(), "%d-%m-%Y %H:%M"
-#                     )
-#                 else:
-#                     final_time = timezone.now()
-#             except:
-#                 final_time = timezone.now()
+#         for record in records:
 
-#             objects.append(
-#                 DispatchOrder(
-#                     order_id=str(order_id).strip(),
-#                     product=str(product).strip(),
-#                     quantity=int(quantity),
-#                     order_packed_time=final_time
-#                 )
+#             crm_item = record.crm_item
+#             crm_order = crm_item.crm_order
+#             original_order = (
+#                 crm_order.original_order
+#                 if crm_order
+#                 else None
 #             )
 
-#         # 🚀 BULK INSERT (FAST)
-#         with transaction.atomic():
-#             DispatchOrder.objects.bulk_create(objects, batch_size=1000)
+#             product = crm_item.product
 
-#         created = len(objects)
+#             # -------------------------------------------------
+#             # ORDER ID
+#             # -------------------------------------------------
 
-#         return Response({
-#             "message": "Upload completed",
-#             "created": created,
-#             "failed": len(errors),
-#             "errors": errors[:20]  # only first 20 errors
-#         })
+#             order_id = (
+#                 original_order.order_id
+#                 if original_order
+#                 else "-"
+#             )
 
+#             # -------------------------------------------------
+#             # PRODUCT NAME
+#             # -------------------------------------------------
 
+#             product_name = "-"
 
-# from datetime import datetime
+#             if product:
+#                 product_name = (
+#                     getattr(
+#                         product,
+#                         "product_name",
+#                         None,
+#                     )
+#                     or getattr(
+#                         product,
+#                         "name",
+#                         None,
+#                     )
+#                     or str(product)
+#                 )
 
-# import openpyxl
+#             # -------------------------------------------------
+#             # APPEND ROW
+#             # -------------------------------------------------
 
-# from django.db import transaction
-# from django.utils import timezone
+#             ws.append([
+#                 crm_item.id,
+#                 order_id,
+#                 product_name,
+#                 record.quantity,
+#                 record.dispatch_location,
+#                 (
+#                     record.order_packed_time.strftime(
+#                         "%Y-%m-%d %H:%M:%S"
+#                     )
+#                     if record.order_packed_time
+#                     else ""
+#                 ),
+#             ])
 
-# from rest_framework.views import APIView
-# from rest_framework.response import Response
-# from rest_framework.permissions import IsAuthenticated
-# from rest_framework.parsers import MultiPartParser
+#         # =====================================================
+#         # EXCEL FORMATTING
+#         # =====================================================
+
+#         ws.freeze_panes = "A2"
+
+#         ws.column_dimensions["A"].width = 16
+#         ws.column_dimensions["B"].width = 18
+#         ws.column_dimensions["C"].width = 35
+#         ws.column_dimensions["D"].width = 14
+#         ws.column_dimensions["E"].width = 20
+#         ws.column_dimensions["F"].width = 24
+
+#         # =====================================================
+#         # RESPONSE
+#         # =====================================================
+
+#         response = HttpResponse(
+#             content_type=(
+#                 "application/vnd.openxmlformats-officedocument."
+#                 "spreadsheetml.sheet"
+#             )
+#         )
+
+#         response[
+#             "Content-Disposition"
+#         ] = (
+#             'attachment; filename="dispatch_records.xlsx"'
+#         )
+
+#         wb.save(response)
+
+#         return response
+
 
 
 class UploadDispatchExcel(APIView):
@@ -1587,4 +1645,2193 @@ def hr_update_order_notes(request, pk):
         }
     )
 
+
+
+# 25 september               ???????????????????????????????????????????????????????????????
+
+
+
+# ============================================================
+# DISPATCH VIEWS
+# NEW DISPATCH SYSTEM
+#
+# Designed for:
+# - 20K - 30K+ Excel rows
+# - Chunked DB processing
+# - Bulk create
+# - Bulk update
+# - Duplicate CRM Item IDs
+# - Latest Excel value wins
+# - Concurrency safe
+# - Existing DispatchOrder system untouched
+# ============================================================
+
+from datetime import datetime
+
+from django.db import transaction
+from django.utils import timezone
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+
+from openpyxl import load_workbook
+
+from .models import (
+    CRMVerifiedOrderItem,
+    DispatchRecord,
+)
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+# Number of records processed in one DB batch.
+# 2000 is a good balance for 20K-30K+ uploads.
+DISPATCH_BATCH_SIZE = 2000
+
+
+# ============================================================
+# EXCEL HELPERS
+# ============================================================
+
+def normalize_header(value):
+    """
+    Converts different Excel header styles into one normalized form.
+
+    Examples:
+        CRM Item ID
+        crm_item_id
+        CRM-Item-ID
+
+    all become:
+
+        crm item id
+    """
+
+    if value is None:
+        return ""
+
+    return (
+        str(value)
+        .strip()
+        .lower()
+        .replace("_", " ")
+        .replace("-", " ")
+    )
+
+
+def get_excel_value(row, header_map, *possible_names):
+    """
+    Returns the value from a row using possible header names.
+    """
+
+    for name in possible_names:
+        normalized = normalize_header(name)
+
+        if normalized in header_map:
+            index = header_map[normalized]
+
+            if index < len(row):
+                return row[index]
+
+    return None
+
+
+def clean_positive_integer(value):
+    """
+    Converts Excel numeric values safely into positive integers.
+
+    Examples:
+        20       -> 20
+        20.0     -> 20
+        "20"     -> 20
+        "20.0"   -> 20
+
+    Invalid:
+        0
+        -10
+        abc
+        None
+    """
+
+    if value is None:
+        return None
+
+    if isinstance(value, bool):
+        return None
+
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+    if number <= 0:
+        return None
+
+    return number
+
+
+def parse_datetime(value):
+    """
+    Converts Excel datetime / supported string formats
+    into timezone-aware datetime.
+    """
+
+    if not value:
+        return None
+
+    # Excel datetime object
+    if hasattr(value, "year") and hasattr(value, "month"):
+
+        dt = value
+
+        if timezone.is_naive(dt):
+            return timezone.make_aware(
+                dt,
+                timezone.get_current_timezone(),
+            )
+
+        return dt
+
+    if isinstance(value, str):
+
+        value = value.strip()
+
+        formats = [
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%d",
+
+            "%d-%m-%Y %H:%M:%S",
+            "%d-%m-%Y %H:%M",
+            "%d-%m-%Y",
+
+            "%d/%m/%Y %H:%M:%S",
+            "%d/%m/%Y %H:%M",
+            "%d/%m/%Y",
+        ]
+
+        for fmt in formats:
+
+            try:
+
+                dt = datetime.strptime(
+                    value,
+                    fmt,
+                )
+
+                return timezone.make_aware(
+                    dt,
+                    timezone.get_current_timezone(),
+                )
+
+            except ValueError:
+                continue
+
+    return None
+
+
+# ============================================================
+# DISPATCH EXCEL UPLOAD
+# ============================================================
+
+class DispatchExcelUploadView(APIView):
+    """
+    NEW DISPATCH EXCEL UPLOAD API.
+
+    Required Excel columns:
+
+        CRM Item ID
+        Quantity
+
+    Optional:
+
+        Order Packed Time
+
+    --------------------------------------------------------
+    IMPORTANT
+    --------------------------------------------------------
+
+    CRM Item ID means:
+
+        CRMVerifiedOrderItem.id
+
+    Example:
+
+        152453
+        153559
+        153560
+
+    Same CRM Item ID can appear multiple times.
+
+    Example:
+
+        152453 -> 20
+        153559 -> 30
+        152453 -> 70
+
+    Final DB result:
+
+        152453 -> 70
+        153559 -> 30
+
+    Latest row wins.
+
+    --------------------------------------------------------
+    PERFORMANCE
+    --------------------------------------------------------
+
+    Data is processed in chunks of 2000.
+
+    30,000 rows therefore become approximately:
+
+        15 batches
+
+    We use:
+
+        bulk_create()
+        bulk_update()
+
+    instead of one DB query per row.
+
+    --------------------------------------------------------
+    CONCURRENCY
+    --------------------------------------------------------
+
+    CRMVerifiedOrderItem rows are locked using:
+
+        select_for_update()
+
+    before checking/creating DispatchRecord.
+
+    This prevents two simultaneous uploads from creating
+    duplicate DispatchRecord rows for the same CRM item.
+    """
+
+    def post(self, request):
+
+        # ====================================================
+        # 1. GET FILE
+        # ====================================================
+
+        uploaded_file = request.FILES.get("file")
+
+        if not uploaded_file:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Excel file is required.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ====================================================
+        # 2. FILE EXTENSION CHECK
+        # ====================================================
+
+        filename = uploaded_file.name.lower()
+
+        if not (
+            filename.endswith(".xlsx")
+            or filename.endswith(".xlsm")
+        ):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Only .xlsx or .xlsm Excel files "
+                        "are supported."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ====================================================
+        # 3. OPEN EXCEL
+        # ====================================================
+
+        try:
+
+            workbook = load_workbook(
+                uploaded_file,
+                read_only=True,
+                data_only=True,
+            )
+
+            worksheet = workbook.active
+
+        except Exception as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        f"Unable to read Excel file: {str(exc)}"
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ====================================================
+        # 4. READ HEADER
+        # ====================================================
+
+        rows = worksheet.iter_rows(
+            values_only=True
+        )
+
+        try:
+
+            headers = next(rows)
+
+        except StopIteration:
+
+            workbook.close()
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Excel file is empty.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ====================================================
+        # 5. CREATE HEADER MAP
+        # ====================================================
+
+        header_map = {}
+
+        for index, header in enumerate(headers):
+
+            normalized = normalize_header(header)
+
+            if normalized:
+
+                header_map[normalized] = index
+
+        # ====================================================
+        # 6. FIND CRM ITEM ID COLUMN
+        # ====================================================
+
+        crm_item_header = None
+
+        crm_item_possible_headers = [
+            "crm item id",
+            "crm_item_id",
+            "crm id",
+            "crm item",
+            "item id",
+            "crmverifiedorderitem id",
+            "crm verified order item id",
+        ]
+
+        for possible in crm_item_possible_headers:
+
+            normalized = normalize_header(possible)
+
+            if normalized in header_map:
+
+                crm_item_header = normalized
+                break
+
+        # ====================================================
+        # 7. FIND QUANTITY COLUMN
+        # ====================================================
+
+        quantity_header = None
+
+        quantity_possible_headers = [
+            "quantity",
+            "qty",
+            "dispatch quantity",
+            "dispatch qty",
+        ]
+
+        for possible in quantity_possible_headers:
+
+            normalized = normalize_header(possible)
+
+            if normalized in header_map:
+
+                quantity_header = normalized
+                break
+
+        # ====================================================
+        # 8. REQUIRED HEADER VALIDATION
+        # ====================================================
+
+        if crm_item_header is None:
+
+            workbook.close()
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "CRM Item ID column is missing. "
+                        "Use 'CRM Item ID'."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if quantity_header is None:
+
+            workbook.close()
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Quantity column is missing. "
+                        "Use 'Quantity' or 'Qty'."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ====================================================
+        # 9. OPTIONAL PACKED TIME COLUMN
+        # ====================================================
+
+        packed_time_header = None
+
+        packed_time_possible_headers = [
+            "order packed time",
+            "packed time",
+            "dispatch time",
+            "packed at",
+            "order_packed_time",
+            "packed_time",
+        ]
+
+        for possible in packed_time_possible_headers:
+
+            normalized = normalize_header(possible)
+
+            if normalized in header_map:
+
+                packed_time_header = normalized
+                break
+
+        # ====================================================
+        # 10. READ EXCEL
+        #
+        # We use a dictionary.
+        #
+        # This automatically makes the LAST occurrence
+        # of the same CRM Item ID win.
+        # ====================================================
+
+        latest_rows = {}
+
+        invalid_rows = []
+
+        total_excel_rows = 0
+
+        for row in rows:
+
+            total_excel_rows += 1
+
+            excel_row_number = total_excel_rows + 1
+
+            # -----------------------------------------------
+            # Empty row
+            # -----------------------------------------------
+
+            if (
+                not row
+                or all(
+                    value is None
+                    or str(value).strip() == ""
+                    for value in row
+                )
+            ):
+
+                continue
+
+            # -----------------------------------------------
+            # CRM ITEM ID
+            # -----------------------------------------------
+
+            crm_item_id = get_excel_value(
+                row,
+                header_map,
+                crm_item_header,
+            )
+
+            # -----------------------------------------------
+            # QUANTITY
+            # -----------------------------------------------
+
+            quantity = get_excel_value(
+                row,
+                header_map,
+                quantity_header,
+            )
+
+            # -----------------------------------------------
+            # PACKED TIME
+            # -----------------------------------------------
+
+            packed_time = None
+
+            if packed_time_header:
+
+                packed_time = get_excel_value(
+                    row,
+                    header_map,
+                    packed_time_header,
+                )
+
+            # -----------------------------------------------
+            # CLEAN CRM ITEM ID
+            # -----------------------------------------------
+
+            crm_item_id = clean_positive_integer(
+                crm_item_id
+            )
+
+            if crm_item_id is None:
+
+                invalid_rows.append(
+                    {
+                        "row": excel_row_number,
+                        "reason": "Invalid CRM Item ID.",
+                    }
+                )
+
+                continue
+
+            # -----------------------------------------------
+            # CLEAN QUANTITY
+            # -----------------------------------------------
+
+            quantity = clean_positive_integer(
+                quantity
+            )
+
+            if quantity is None:
+
+                invalid_rows.append(
+                    {
+                        "row": excel_row_number,
+                        "crm_item_id": crm_item_id,
+                        "reason": "Invalid quantity.",
+                    }
+                )
+
+                continue
+
+            # -----------------------------------------------
+            # PARSE PACKED TIME
+            # -----------------------------------------------
+
+            parsed_packed_time = parse_datetime(
+                packed_time
+            )
+
+            # -----------------------------------------------
+            # LATEST VALUE WINS
+            # -----------------------------------------------
+
+            latest_rows[crm_item_id] = {
+                "excel_row": excel_row_number,
+                "crm_item_id": crm_item_id,
+                "quantity": quantity,
+                "order_packed_time": parsed_packed_time,
+            }
+
+        # ====================================================
+        # CLOSE WORKBOOK
+        # ====================================================
+
+        workbook.close()
+
+        # ====================================================
+        # 11. NO VALID DATA
+        # ====================================================
+
+        if not latest_rows:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "No valid dispatch records found."
+                    ),
+                    "total_excel_rows": total_excel_rows,
+                    "invalid_rows": invalid_rows,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ====================================================
+        # 12. UNIQUE CRM ITEM IDS
+        # ====================================================
+
+        unique_item_ids = list(
+            latest_rows.keys()
+        )
+
+        # ====================================================
+        # 13. COUNTERS
+        # ====================================================
+
+        created_count = 0
+        updated_count = 0
+
+        invalid_crm_items = []
+
+        processed_batches = 0
+
+        total_unique_items = len(
+            unique_item_ids
+        )
+
+        # ====================================================
+        # 14. PROCESS IN CHUNKS
+        # ====================================================
+
+        for start_index in range(
+            0,
+            total_unique_items,
+            DISPATCH_BATCH_SIZE,
+        ):
+
+            end_index = (
+                start_index
+                + DISPATCH_BATCH_SIZE
+            )
+
+            batch_item_ids = unique_item_ids[
+                start_index:end_index
+            ]
+
+            processed_batches += 1
+
+            # =================================================
+            # EACH BATCH HAS ITS OWN TRANSACTION
+            # =================================================
+
+            with transaction.atomic():
+
+                # =============================================
+                # LOCK CRM ITEMS
+                #
+                # This is important for concurrent uploads.
+                #
+                # If two users upload same CRM Item ID,
+                # database will serialize access to that
+                # CRM item.
+                # =============================================
+
+                crm_items = (
+                    CRMVerifiedOrderItem.objects
+                    .select_for_update()
+                    .select_related(
+                        "crm_order",
+                        "crm_order__original_order",
+                    )
+                    .filter(
+                        id__in=batch_item_ids
+                    )
+                )
+
+                crm_item_map = {
+                    item.id: item
+                    for item in crm_items
+                }
+
+                # =============================================
+                # INVALID CRM ITEMS
+                # =============================================
+
+                for crm_item_id in batch_item_ids:
+
+                    if crm_item_id not in crm_item_map:
+
+                        invalid_crm_items.append(
+                            crm_item_id
+                        )
+
+                # =============================================
+                # ONLY VALID IDS
+                # =============================================
+
+                valid_batch_ids = [
+                    item_id
+                    for item_id in batch_item_ids
+                    if item_id in crm_item_map
+                ]
+
+                if not valid_batch_ids:
+
+                    continue
+
+                # =============================================
+                # GET EXISTING DISPATCH RECORDS
+                #
+                # Because CRM items are already locked above,
+                # another concurrent importer cannot modify
+                # these same CRM items while this transaction
+                # is working.
+                # =============================================
+
+                existing_records = (
+                    DispatchRecord.objects
+                    .select_for_update()
+                    .filter(
+                        crm_item_id__in=valid_batch_ids
+                    )
+                )
+
+                existing_map = {
+                    record.crm_item_id: record
+                    for record in existing_records
+                }
+
+                # =============================================
+                # PREPARE BULK OPERATIONS
+                # =============================================
+
+                records_to_create = []
+                records_to_update = []
+
+                current_time = timezone.now()
+
+                for crm_item_id in valid_batch_ids:
+
+                    row_data = latest_rows[
+                        crm_item_id
+                    ]
+
+                    crm_item = crm_item_map[
+                        crm_item_id
+                    ]
+
+                    # -----------------------------------------
+                    # DISPATCH LOCATION
+                    # -----------------------------------------
+
+                    dispatch_location = (
+                        crm_item.crm_order.dispatch_location
+                        or "Delhi"
+                    )
+
+                    # -----------------------------------------
+                    # EXISTING RECORD
+                    # -----------------------------------------
+
+                    existing_record = (
+                        existing_map.get(
+                            crm_item_id
+                        )
+                    )
+
+                    if existing_record:
+
+                        # -------------------------------------
+                        # UPDATE EXISTING
+                        # -------------------------------------
+
+                        existing_record.quantity = (
+                            row_data["quantity"]
+                        )
+
+                        existing_record.dispatch_location = (
+                            dispatch_location
+                        )
+
+                        # -------------------------------------
+                        # IMPORTANT:
+                        #
+                        # If Excel contains packed time,
+                        # update it.
+                        #
+                        # If Excel doesn't contain packed time,
+                        # preserve existing DB value.
+                        # -------------------------------------
+
+                        if (
+                            row_data[
+                                "order_packed_time"
+                            ]
+                            is not None
+                        ):
+
+                            existing_record.order_packed_time = (
+                                row_data[
+                                    "order_packed_time"
+                                ]
+                            )
+
+                        existing_record.updated_at = (
+                            current_time
+                        )
+
+                        records_to_update.append(
+                            existing_record
+                        )
+
+                    else:
+
+                        # -------------------------------------
+                        # CREATE NEW
+                        # -------------------------------------
+
+                        records_to_create.append(
+                            DispatchRecord(
+                                crm_item=crm_item,
+                                quantity=row_data[
+                                    "quantity"
+                                ],
+                                dispatch_location=(
+                                    dispatch_location
+                                ),
+                                order_packed_time=(
+                                    row_data[
+                                        "order_packed_time"
+                                    ]
+                                ),
+                            )
+                        )
+
+                # =============================================
+                # BULK CREATE
+                # =============================================
+
+                if records_to_create:
+
+                    DispatchRecord.objects.bulk_create(
+                        records_to_create,
+                        batch_size=1000,
+                    )
+
+                    created_count += len(
+                        records_to_create
+                    )
+
+                # =============================================
+                # BULK UPDATE
+                # =============================================
+
+                if records_to_update:
+
+                    DispatchRecord.objects.bulk_update(
+                        records_to_update,
+                        fields=[
+                            "quantity",
+                            "dispatch_location",
+                            "order_packed_time",
+                            "updated_at",
+                        ],
+                        batch_size=1000,
+                    )
+
+                    updated_count += len(
+                        records_to_update
+                    )
+
+        # ====================================================
+        # 15. FINAL RESPONSE
+        # ====================================================
+
+        return Response(
+            {
+                "success": True,
+
+                "message": (
+                    "Dispatch Excel imported successfully."
+                ),
+
+                "summary": {
+                    "total_excel_rows": (
+                        total_excel_rows
+                    ),
+
+                    "unique_crm_items": (
+                        total_unique_items
+                    ),
+
+                    "created": (
+                        created_count
+                    ),
+
+                    "updated": (
+                        updated_count
+                    ),
+
+                    "invalid_crm_items": (
+                        len(
+                            invalid_crm_items
+                        )
+                    ),
+
+                    "invalid_rows": (
+                        len(
+                            invalid_rows
+                        )
+                    ),
+
+                    "processed_batches": (
+                        processed_batches
+                    ),
+
+                    "batch_size": (
+                        DISPATCH_BATCH_SIZE
+                    ),
+                },
+
+                "invalid_crm_item_ids": (
+                    invalid_crm_items
+                ),
+
+                "invalid_rows": (
+                    invalid_rows
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
+
+from collections import defaultdict
+
+from django.contrib.auth import get_user_model
+from django.core.exceptions import FieldDoesNotExist
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    F,
+    IntegerField,
+    OuterRef,
+    Q,
+    Subquery,
+    Sum,
+    Value,
+    When,
+)
+from django.db.models.functions import Coalesce
+from django.shortcuts import get_object_or_404
+
+from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import (
+    SSOrder,
+    SSOrderItem,
+    CRMVerifiedOrder,
+    CRMVerifiedOrderItem,
+    DispatchRecord,
+)
+
+from .order_records_serializers import (
+    OrderRecordListSerializer,
+    OrderRecordDetailSerializer,
+)
+
+
+User = get_user_model()
+
+
+# ============================================================
+# PAGINATION
+# ============================================================
+
+class OrderRecordPagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+# ============================================================
+# USER HELPERS
+# ============================================================
+
+def _field_exists(model, field_name):
+    try:
+        model._meta.get_field(field_name)
+        return True
+    except FieldDoesNotExist:
+        return False
+
+
+def _user_display_name(user):
+    if not user:
+        return ""
+
+    for field in (
+        "party_name",
+        "name",
+        "username",
+        "email",
+    ):
+        value = getattr(user, field, None)
+
+        if value:
+            return str(value).strip()
+
+    first_name = getattr(user, "first_name", "") or ""
+    last_name = getattr(user, "last_name", "") or ""
+
+    full_name = f"{first_name} {last_name}".strip()
+
+    return full_name
+
+
+def _user_mobile(user):
+    if not user:
+        return ""
+
+    for field in (
+        "mobile",
+        "phone",
+        "phone_number",
+    ):
+        value = getattr(user, field, None)
+
+        if value:
+            return str(value)
+
+    return ""
+
+
+def _user_search_q(relation, value):
+    """
+    Builds a safe search query according to fields
+    actually existing on the custom User model.
+    """
+
+    query = Q()
+
+    searchable_fields = [
+        "party_name",
+        "name",
+        "username",
+        "first_name",
+        "last_name",
+        "email",
+        "mobile",
+        "phone",
+        "phone_number",
+    ]
+
+    for field in searchable_fields:
+        if _field_exists(User, field):
+            query |= Q(
+                **{
+                    f"{relation}__{field}__icontains": value
+                }
+            )
+
+    return query
+
+
+# ============================================================
+# ROLE
+# ============================================================
+
+def _get_user_role(user):
+    role = getattr(user, "role", None)
+
+    if role is None:
+        role = getattr(user, "user_type", None)
+
+    return str(role or "").upper().strip()
+
+
+def _is_admin(user):
+    return (
+        bool(getattr(user, "is_superuser", False))
+        or bool(getattr(user, "is_staff", False))
+        or _get_user_role(user) == "ADMIN"
+    )
+
+
+# ============================================================
+# BASE ROLE FILTER
+# ============================================================
+
+def _get_role_filtered_queryset(user):
+    """
+    IMPORTANT:
+    Role filtering happens directly in DB.
+    """
+
+    queryset = SSOrder.objects.select_related(
+        "ss_user",
+        "assigned_crm",
+    )
+
+    if _is_admin(user):
+        return queryset
+
+    role = _get_user_role(user)
+
+    if role == "CRM":
+        return queryset.filter(
+            assigned_crm=user
+        )
+
+    if role == "SS":
+        return queryset.filter(
+            ss_user=user
+        )
+
+    raise PermissionDenied(
+        "You are not allowed to access order records."
+    )
+
+
+# ============================================================
+# LATEST VERIFICATION SUBQUERY
+# ============================================================
+
+def _latest_verification_queryset():
+    return (
+        CRMVerifiedOrder.objects
+        .filter(
+            original_order=OuterRef("pk")
+        )
+        .order_by(
+            "-verified_at",
+            "-pk",
+        )
+    )
+
+
+# ============================================================
+# ANNOTATED LIST QUERYSET
+# ============================================================
+
+def _build_order_records_queryset(user):
+    queryset = _get_role_filtered_queryset(user)
+
+    latest_verification = _latest_verification_queryset()
+
+    latest_verification_id = Subquery(
+        latest_verification.values("id")[:1],
+        output_field=IntegerField(),
+    )
+
+    latest_verification_status = Subquery(
+        latest_verification.values("status")[:1],
+        output_field=CharField(),
+    )
+
+    latest_verification_punched = Subquery(
+        latest_verification.values("punched")[:1],
+    )
+
+    latest_verification_date = Subquery(
+        latest_verification.values("verified_at")[:1],
+    )
+
+    latest_dispatch_location = Subquery(
+        latest_verification.values("dispatch_location")[:1],
+        output_field=CharField(),
+    )
+
+    # --------------------------------------------------------
+    # VERIFIED ITEM COUNT
+    # --------------------------------------------------------
+
+    verified_item_count = Subquery(
+        CRMVerifiedOrderItem.objects
+        .filter(
+            crm_order_id=latest_verification_id
+        )
+        .order_by()
+        .values("crm_order_id")
+        .annotate(
+            total=Count("id")
+        )
+        .values("total")[:1],
+        output_field=IntegerField(),
+    )
+
+    # --------------------------------------------------------
+    # DISPATCHABLE ITEM COUNT
+    # --------------------------------------------------------
+
+    dispatchable_item_count = Subquery(
+        CRMVerifiedOrderItem.objects
+        .filter(
+            crm_order_id=latest_verification_id,
+            is_rejected=False,
+        )
+        .order_by()
+        .values("crm_order_id")
+        .annotate(
+            total=Count("id")
+        )
+        .values("total")[:1],
+        output_field=IntegerField(),
+    )
+
+    # --------------------------------------------------------
+    # DISPATCHED ITEM COUNT
+    # --------------------------------------------------------
+
+    dispatched_item_count = Subquery(
+        CRMVerifiedOrderItem.objects
+        .filter(
+            crm_order_id=latest_verification_id,
+            is_rejected=False,
+            dispatch_record__isnull=False,
+        )
+        .order_by()
+        .values("crm_order_id")
+        .annotate(
+            total=Count("id")
+        )
+        .values("total")[:1],
+        output_field=IntegerField(),
+    )
+
+    # --------------------------------------------------------
+    # DISPATCHED QUANTITY
+    # --------------------------------------------------------
+
+    dispatched_quantity = Subquery(
+        DispatchRecord.objects
+        .filter(
+            crm_item__crm_order_id=latest_verification_id
+        )
+        .order_by()
+        .values(
+            "crm_item__crm_order_id"
+        )
+        .annotate(
+            total=Sum("quantity")
+        )
+        .values("total")[:1],
+        output_field=IntegerField(),
+    )
+
+    queryset = queryset.annotate(
+        latest_verification_id=latest_verification_id,
+
+        latest_verification_status=latest_verification_status,
+
+        latest_verification_punched=latest_verification_punched,
+
+        latest_verification_date=latest_verification_date,
+
+        latest_dispatch_location=latest_dispatch_location,
+
+        items_count=Count(
+            "items",
+            distinct=True,
+        ),
+
+        verified_item_count=Coalesce(
+            verified_item_count,
+            Value(0),
+            output_field=IntegerField(),
+        ),
+
+        dispatchable_item_count=Coalesce(
+            dispatchable_item_count,
+            Value(0),
+            output_field=IntegerField(),
+        ),
+
+        dispatched_item_count=Coalesce(
+            dispatched_item_count,
+            Value(0),
+            output_field=IntegerField(),
+        ),
+
+        dispatched_quantity=Coalesce(
+            dispatched_quantity,
+            Value(0),
+            output_field=IntegerField(),
+        ),
+    )
+
+    # ========================================================
+    # DISPATCH STATUS
+    # ========================================================
+
+    queryset = queryset.annotate(
+        dispatch_status=Case(
+
+            When(
+                latest_verification_id__isnull=True,
+                then=Value("NOT_VERIFIED"),
+            ),
+
+            When(
+                dispatchable_item_count=0,
+                then=Value("NO_DISPATCH_REQUIRED"),
+            ),
+
+            When(
+                dispatched_item_count=0,
+                then=Value("PENDING"),
+            ),
+
+            When(
+                dispatched_item_count__gte=F(
+                    "dispatchable_item_count"
+                ),
+                then=Value("DISPATCHED"),
+            ),
+
+            default=Value("PARTIAL"),
+
+            output_field=CharField(),
+        )
+    )
+
+    return queryset
+
+
+# ============================================================
+# DATE PARSER
+# ============================================================
+
+def _get_date(value):
+    if not value:
+        return None
+
+    try:
+        from datetime import date
+
+        return date.fromisoformat(value)
+
+    except (TypeError, ValueError):
+        return None
+
+
+# ============================================================
+# LIST FILTERS
+# ============================================================
+
+def _apply_filters(queryset, request):
+
+    # --------------------------------------------------------
+    # SEARCH
+    # --------------------------------------------------------
+
+    search = str(
+        request.query_params.get(
+            "search",
+            ""
+        )
+    ).strip()
+
+    if search:
+
+        search_query = Q(
+            order_id__icontains=search
+        )
+
+        search_query |= _user_search_q(
+            "ss_user",
+            search
+        )
+
+        search_query |= _user_search_q(
+            "assigned_crm",
+            search
+        )
+
+        queryset = queryset.filter(
+            search_query
+        )
+
+    # --------------------------------------------------------
+    # PARTY
+    # --------------------------------------------------------
+
+    party = str(
+        request.query_params.get(
+            "party",
+            ""
+        )
+    ).strip()
+
+    if party:
+
+        party_query = _user_search_q(
+            "ss_user",
+            party
+        )
+
+        queryset = queryset.filter(
+            party_query
+        )
+
+    # --------------------------------------------------------
+    # ORIGINAL ORDER STATUS
+    # --------------------------------------------------------
+
+    order_status = str(
+        request.query_params.get(
+            "status",
+            ""
+        )
+    ).strip()
+
+    if order_status:
+        queryset = queryset.filter(
+            status__iexact=order_status
+        )
+
+    # --------------------------------------------------------
+    # VERIFICATION STATUS
+    # --------------------------------------------------------
+
+    verification_status = str(
+        request.query_params.get(
+            "verification_status",
+            ""
+        )
+    ).strip()
+
+    if verification_status:
+        queryset = queryset.filter(
+            latest_verification_status__iexact=
+            verification_status
+        )
+
+    # --------------------------------------------------------
+    # PUNCHED
+    # --------------------------------------------------------
+
+    punched = str(
+        request.query_params.get(
+            "punched",
+            ""
+        )
+    ).strip().lower()
+
+    if punched in {
+        "true",
+        "1",
+        "yes",
+    }:
+
+        queryset = queryset.filter(
+            latest_verification_punched=True
+        )
+
+    elif punched in {
+        "false",
+        "0",
+        "no",
+    }:
+
+        queryset = queryset.filter(
+            latest_verification_punched=False
+        )
+
+    # --------------------------------------------------------
+    # DISPATCH
+    # --------------------------------------------------------
+
+    dispatch = str(
+        request.query_params.get(
+            "dispatch",
+            ""
+        )
+    ).strip().upper()
+
+    allowed_dispatch_statuses = {
+        "NOT_VERIFIED",
+        "NO_DISPATCH_REQUIRED",
+        "PENDING",
+        "PARTIAL",
+        "DISPATCHED",
+    }
+
+    if dispatch in allowed_dispatch_statuses:
+
+        queryset = queryset.filter(
+            dispatch_status=dispatch
+        )
+
+    # --------------------------------------------------------
+    # FROM DATE
+    # --------------------------------------------------------
+
+    from_date = _get_date(
+        request.query_params.get(
+            "from_date"
+        )
+    )
+
+    if from_date:
+
+        queryset = queryset.filter(
+            created_at__date__gte=from_date
+        )
+
+    # --------------------------------------------------------
+    # TO DATE
+    # --------------------------------------------------------
+
+    to_date = _get_date(
+        request.query_params.get(
+            "to_date"
+        )
+    )
+
+    if to_date:
+
+        queryset = queryset.filter(
+            created_at__date__lte=to_date
+        )
+
+    return queryset
+
+
+# ============================================================
+# LIST SERIALIZATION
+# ============================================================
+
+def _serialize_list_row(order):
+
+    total_amount = order.total_amount
+
+    return {
+        "id": order.id,
+
+        "order_id": order.order_id,
+
+        "ss_party_name": _user_display_name(
+            order.ss_user
+        ),
+
+        "ss_user_name": _user_display_name(
+            order.ss_user
+        ),
+
+        "crm_name": _user_display_name(
+            order.assigned_crm
+        ),
+
+        "total_amount": str(
+            total_amount
+        ),
+
+        "status": order.status or "",
+
+        "verification_status":
+            getattr(
+                order,
+                "latest_verification_status",
+                None,
+            ),
+
+        "punched":
+            getattr(
+                order,
+                "latest_verification_punched",
+                None,
+            ),
+
+        "items_count":
+            int(
+                getattr(
+                    order,
+                    "items_count",
+                    0
+                ) or 0
+            ),
+            "verified_items_count": int(
+    getattr(order, "verified_item_count", 0) or 0
+),
+        "dispatched_items_count":
+            int(
+                getattr(
+                    order,
+                    "dispatched_item_count",
+                    0
+                ) or 0
+            ),
+
+        "dispatched_quantity":
+            int(
+                getattr(
+                    order,
+                    "dispatched_quantity",
+                    0
+                ) or 0
+            ),
+
+        "dispatch_status":
+            getattr(
+                order,
+                "dispatch_status",
+                "NOT_VERIFIED",
+            ),
+
+        "created_at":
+            order.created_at.isoformat()
+            if order.created_at
+            else "",
+    }
+
+
+# ============================================================
+# DETAIL HELPERS
+# ============================================================
+
+def _product_name(product):
+
+    if not product:
+        return ""
+
+    for field in (
+        "product_name",
+        "name",
+        "title",
+    ):
+
+        value = getattr(
+            product,
+            field,
+            None
+        )
+
+        if value:
+            return str(value)
+
+    return str(product)
+
+
+def _get_dispatch_record(crm_item):
+
+    try:
+        return crm_item.dispatch_record
+
+    except DispatchRecord.DoesNotExist:
+        return None
+
+
+# ============================================================
+# DETAIL QUERY
+# ============================================================
+
+def _get_latest_verification(order):
+
+    return (
+        CRMVerifiedOrder.objects
+        .filter(
+            original_order=order
+        )
+        .select_related(
+            "crm_user"
+        )
+        .prefetch_related(
+            "items__product"
+        )
+        .order_by(
+            "-verified_at",
+            "-pk",
+        )
+        .first()
+    )
+
+
+# ============================================================
+# DETAIL RESPONSE
+# ============================================================
+
+def _build_detail_response(order):
+
+    original_items = list(
+        order.items
+        .select_related("product")
+        .all()
+    )
+
+    verification = _get_latest_verification(
+        order
+    )
+
+    # ========================================================
+    # NO VERIFICATION YET
+    # ========================================================
+
+    if not verification:
+
+        detail_items = []
+
+        for original_item in original_items:
+
+            detail_items.append({
+                "crm_item_id": None,
+
+                "product_id":
+                    original_item.product_id,
+
+                "product_name":
+                    _product_name(
+                        original_item.product
+                    ),
+
+                "ordered_quantity":
+                    original_item.quantity,
+
+                "verified_quantity":
+                    None,
+
+                "rejected": False,
+
+                "dispatch_quantity": 0,
+
+                "dispatch_location": None,
+
+                "order_packed_time": None,
+            })
+
+        summary = {
+            "items_count": len(
+                original_items
+            ),
+
+            "verified_items_count": 0,
+
+            "dispatchable_items_count": 0,
+
+            "dispatched_items_count": 0,
+
+            "dispatched_quantity": 0,
+
+            "dispatch_status":
+                "NOT_VERIFIED",
+        }
+
+        return {
+            "order_id": order.order_id,
+
+            "total_amount":
+                str(order.total_amount),
+
+            "status":
+                order.status or "",
+
+            "created_at":
+                order.created_at.isoformat()
+                if order.created_at
+                else "",
+
+            "ss_user": {
+                "party_name":
+                    _user_display_name(
+                        order.ss_user
+                    ),
+
+                "name":
+                    _user_display_name(
+                        order.ss_user
+                    ),
+
+                "mobile":
+                    _user_mobile(
+                        order.ss_user
+                    ),
+            },
+
+            "crm_user": {
+                "name": "",
+                "mobile": "",
+            },
+
+            "verification": None,
+
+            "summary": summary,
+
+            "items": detail_items,
+
+            "note":
+                order.note or "",
+
+            "notes":
+                order.notes or "",
+        }
+
+    # ========================================================
+    # VERIFIED ITEMS
+    # ========================================================
+
+    verified_items = list(
+        verification.items
+        .select_related("product")
+        .prefetch_related("dispatch_record")
+        .all()
+    )
+
+    # ========================================================
+    # MATCH ORIGINAL ITEMS
+    # ========================================================
+
+    original_by_product = defaultdict(list)
+
+    for item in original_items:
+
+        original_by_product[
+            item.product_id
+        ].append(item)
+
+    detail_items = []
+
+    dispatched_quantity_total = 0
+
+    dispatched_items_count = 0
+
+    dispatchable_items_count = 0
+
+    for crm_item in verified_items:
+
+        original_item = None
+
+        candidates = original_by_product.get(
+            crm_item.product_id
+        )
+
+        if candidates:
+
+            original_item = candidates.pop(0)
+
+        dispatch = _get_dispatch_record(
+            crm_item
+        )
+
+        dispatch_quantity = (
+            int(dispatch.quantity)
+            if dispatch
+            else 0
+        )
+
+        if not crm_item.is_rejected:
+
+            dispatchable_items_count += 1
+
+            if dispatch:
+
+                dispatched_items_count += 1
+
+                dispatched_quantity_total += (
+                    dispatch_quantity
+                )
+
+        detail_items.append({
+
+            "crm_item_id":
+                crm_item.id,
+
+            "product_id":
+                crm_item.product_id,
+
+            "product_name":
+                _product_name(
+                    crm_item.product
+                ),
+
+            "ordered_quantity":
+                (
+                    original_item.quantity
+                    if original_item
+                    else 0
+                ),
+
+            "verified_quantity":
+                crm_item.quantity,
+
+            "rejected":
+                bool(
+                    crm_item.is_rejected
+                ),
+
+            "dispatch_quantity":
+                dispatch_quantity,
+
+            "dispatch_location":
+                (
+                    dispatch.dispatch_location
+                    if dispatch
+                    else None
+                ),
+
+            "order_packed_time":
+                (
+                    dispatch.order_packed_time.isoformat()
+                    if dispatch
+                    and dispatch.order_packed_time
+                    else None
+                ),
+        })
+
+    # ========================================================
+    # ORIGINAL ITEMS THAT DID NOT HAVE CRM ITEM
+    # ========================================================
+
+    for product_id, remaining_items in (
+        original_by_product.items()
+    ):
+
+        for original_item in remaining_items:
+
+            detail_items.append({
+
+                "crm_item_id": None,
+
+                "product_id":
+                    original_item.product_id,
+
+                "product_name":
+                    _product_name(
+                        original_item.product
+                    ),
+
+                "ordered_quantity":
+                    original_item.quantity,
+
+                "verified_quantity":
+                    None,
+
+                "rejected": False,
+
+                "dispatch_quantity": 0,
+
+                "dispatch_location": None,
+
+                "order_packed_time": None,
+            })
+
+    # ========================================================
+    # DISPATCH STATUS
+    # ========================================================
+
+    if dispatchable_items_count == 0:
+
+        dispatch_status = (
+            "NO_DISPATCH_REQUIRED"
+        )
+
+    elif dispatched_items_count == 0:
+
+        dispatch_status = "PENDING"
+
+    elif (
+        dispatched_items_count
+        >= dispatchable_items_count
+    ):
+
+        dispatch_status = "DISPATCHED"
+
+    else:
+
+        dispatch_status = "PARTIAL"
+
+    # ========================================================
+    # FINAL RESPONSE
+    # ========================================================
+
+    return {
+
+        "order_id":
+            order.order_id,
+
+        "total_amount":
+            str(order.total_amount),
+
+        "status":
+            order.status or "",
+
+        "created_at":
+            order.created_at.isoformat()
+            if order.created_at
+            else "",
+
+        "ss_user": {
+
+            "party_name":
+                _user_display_name(
+                    order.ss_user
+                ),
+
+            "name":
+                _user_display_name(
+                    order.ss_user
+                ),
+
+            "mobile":
+                _user_mobile(
+                    order.ss_user
+                ),
+        },
+
+        "crm_user": {
+
+            "name":
+                _user_display_name(
+                    verification.crm_user
+                ),
+
+            "mobile":
+                _user_mobile(
+                    verification.crm_user
+                ),
+        },
+
+        "verification": {
+
+            "status":
+                verification.status,
+
+            "punched":
+                bool(
+                    verification.punched
+                ),
+
+            "crm_name":
+                _user_display_name(
+                    verification.crm_user
+                ),
+
+            "verified_at":
+                (
+                    verification.verified_at.isoformat()
+                    if verification.verified_at
+                    else None
+                ),
+                "dispatch_location": verification.dispatch_location,
+        },
+
+        "summary": {
+
+            "items_count":
+                len(original_items),
+
+            "verified_items_count":
+                len(verified_items),
+
+            "dispatchable_items_count":
+                dispatchable_items_count,
+
+            "dispatched_items_count":
+                dispatched_items_count,
+
+            "dispatched_quantity":
+                dispatched_quantity_total,
+
+            "dispatch_status":
+                dispatch_status,
+        },
+
+        "items":
+            detail_items,
+
+        "note":
+            order.note or "",
+
+        "notes":
+            order.notes or "",
+    }
+
+
+# ============================================================
+# LIST API
+# ============================================================
+
+class OrderRecordsListView(APIView):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    pagination_class = (
+        OrderRecordPagination
+    )
+
+    def get(self, request):
+
+        queryset = _build_order_records_queryset(
+            request.user
+        )
+
+        queryset = _apply_filters(
+            queryset,
+            request
+        )
+
+        queryset = queryset.order_by(
+            "-created_at",
+            "-pk",
+        )
+
+        paginator = self.pagination_class()
+
+        page = paginator.paginate_queryset(
+            queryset,
+            request,
+            view=self,
+        )
+
+        data = [
+            _serialize_list_row(order)
+            for order in page
+        ]
+
+        serializer = OrderRecordListSerializer(
+            data,
+            many=True,
+        )
+
+        return paginator.get_paginated_response(
+            serializer.data
+        )
+
+
+# ============================================================
+# DETAIL API
+# ============================================================
+
+class OrderRecordDetailView(APIView):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def get(self, request, pk):
+
+        queryset = _get_role_filtered_queryset(
+            request.user
+        )
+
+        order = get_object_or_404(
+            queryset,
+            pk=pk,
+        )
+
+        data = _build_detail_response(
+            order
+        )
+
+        serializer = OrderRecordDetailSerializer(
+            data
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
 
