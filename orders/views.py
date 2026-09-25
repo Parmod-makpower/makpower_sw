@@ -781,59 +781,228 @@ def list_orders_by_role(request):
 #         data = CombinedOrderTrackSerializer(order).data
 #         return Response(data, status=200)
 
+# class CombinedOrderTrackView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request, order_id):
+#         user = request.user
+
+#         print("🔍 TRACK ORDER ID RECEIVED:", repr(order_id))
+
+#         try:
+#             order = SSOrder.objects.select_related(
+#                 "ss_user",
+#                 "assigned_crm"
+#             ).get(order_id=order_id)
+
+#             print("✅ ORDER FOUND:", order.id, order.order_id)
+
+#         except SSOrder.DoesNotExist:
+#             return Response(
+#                 {"error": "Order not found"},
+#                 status=404
+#             )
+
+#         # ADMIN / STAFF / SUPERUSER
+#         if user.is_staff or user.is_superuser:
+#             pass
+
+#         # ASM
+#         elif user.role == "ASM":
+#             from asm.models import ASMSSAssignment
+
+#             assigned = ASMSSAssignment.objects.filter(
+#                 asm=user,
+#                 ss=order.ss_user,
+#                 is_active=True,
+#                 ss__is_active=True,
+#             ).exists()
+
+#             if not assigned:
+#                 return Response(
+#                     {"error": "Not authorized"},
+#                     status=403
+#                 )
+
+#         # CRM / SS
+#         elif order.assigned_crm != user and order.ss_user != user:
+#             return Response(
+#                 {"error": "Not authorized"},
+#                 status=403
+#             )
+
+#         data = CombinedOrderTrackSerializer(order).data
+
+#         return Response(data, status=200)
+
+from django.db.models import Prefetch
+
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import (
+    SSOrder,
+    SSOrderItem,
+    CRMVerifiedOrder,
+    CRMVerifiedOrderItem,
+)
+
+from .serializers import CombinedOrderTrackSerializer
+
+
 class CombinedOrderTrackView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, order_id):
         user = request.user
 
-        print("🔍 TRACK ORDER ID RECEIVED:", repr(order_id))
+        # =====================================================
+        # ORDER QUERY
+        # =====================================================
 
         try:
-            order = SSOrder.objects.select_related(
-                "ss_user",
-                "assigned_crm"
-            ).get(order_id=order_id)
-
-            print("✅ ORDER FOUND:", order.id, order.order_id)
+            order = (
+                SSOrder.objects
+                .select_related(
+                    "ss_user",
+                    "assigned_crm",
+                )
+                .prefetch_related(
+                    Prefetch(
+                        "items",
+                        queryset=(
+                            SSOrderItem.objects
+                            .select_related("product")
+                        ),
+                        to_attr="_track_ss_items",
+                    ),
+                    Prefetch(
+                        "crm_verified_versions",
+                        queryset=(
+                            CRMVerifiedOrder.objects
+                            .select_related("crm_user")
+                            .prefetch_related(
+                                Prefetch(
+                                    "items",
+                                    queryset=(
+                                        CRMVerifiedOrderItem.objects
+                                        .select_related("product")
+                                        .select_related(
+                                            "dispatch_record"
+                                        )
+                                    ),
+                                    to_attr="_track_crm_items",
+                                )
+                            )
+                            .order_by(
+                                "-verified_at",
+                                "-pk",
+                            )
+                        ),
+                        to_attr="_track_crm_versions",
+                    ),
+                )
+                .get(order_id=order_id)
+            )
 
         except SSOrder.DoesNotExist:
             return Response(
-                {"error": "Order not found"},
-                status=404
+                {
+                    "error": "Order not found"
+                },
+                status=404,
             )
 
+        # =====================================================
+        # GET LATEST CRM VERIFICATION
+        # =====================================================
+
+        crm_versions = getattr(
+            order,
+            "_track_crm_versions",
+            []
+        )
+
+        order._track_crm_record = (
+            crm_versions[0]
+            if crm_versions
+            else None
+        )
+
+        if order._track_crm_record:
+            order._track_crm_items = getattr(
+                order._track_crm_record,
+                "_track_crm_items",
+                []
+            )
+        else:
+            order._track_crm_items = []
+
+        # =====================================================
+        # AUTHORIZATION
+        # =====================================================
+
         # ADMIN / STAFF / SUPERUSER
-        if user.is_staff or user.is_superuser:
+        if (
+            getattr(user, "is_staff", False)
+            or getattr(user, "is_superuser", False)
+        ):
             pass
 
+        # =====================================================
         # ASM
-        elif user.role == "ASM":
+        # =====================================================
+
+        elif getattr(user, "role", None) == "ASM":
+
             from asm.models import ASMSSAssignment
 
-            assigned = ASMSSAssignment.objects.filter(
-                asm=user,
-                ss=order.ss_user,
-                is_active=True,
-                ss__is_active=True,
-            ).exists()
+            assigned = (
+                ASMSSAssignment.objects
+                .filter(
+                    asm=user,
+                    ss=order.ss_user,
+                    is_active=True,
+                    ss__is_active=True,
+                )
+                .exists()
+            )
 
             if not assigned:
                 return Response(
-                    {"error": "Not authorized"},
-                    status=403
+                    {
+                        "error": "Not authorized"
+                    },
+                    status=403,
                 )
 
+        # =====================================================
         # CRM / SS
-        elif order.assigned_crm != user and order.ss_user != user:
+        # =====================================================
+
+        elif (
+            order.assigned_crm != user
+            and order.ss_user != user
+        ):
             return Response(
-                {"error": "Not authorized"},
-                status=403
+                {
+                    "error": "Not authorized"
+                },
+                status=403,
             )
 
-        data = CombinedOrderTrackSerializer(order).data
+        # =====================================================
+        # SERIALIZE
+        # =====================================================
 
-        return Response(data, status=200)
+        serializer = CombinedOrderTrackSerializer(order)
+
+        return Response(
+            serializer.data,
+            status=200,
+        )
+
 
 class UpdateOrderStatusView(APIView):
     permission_classes = [IsAuthenticated]
@@ -948,176 +1117,176 @@ class DeleteSelectedDispatchOrders(APIView):
         )
 
 
-class DownloadDispatchExcel(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Dispatch Orders"
-
-        # Header
-        ws.append([
-            "order_id",
-            "product",
-            "quantity",
-            "order_packed_time",  # optional
-        ])
-
-        # Example row (optional)
-        ws.append([
-            "ORD-12345",
-            "Product A",
-            10,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        ])
-
-        response = HttpResponse(
-            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-        response["Content-Disposition"] = "attachment; filename=dispatch_orders.xlsx"
-        wb.save(response)
-        return response
-
-
 # class DownloadDispatchExcel(APIView):
 #     permission_classes = [IsAuthenticated]
 
 #     def get(self, request):
 #         wb = openpyxl.Workbook()
 #         ws = wb.active
-#         ws.title = "Dispatch Records"
+#         ws.title = "Dispatch Orders"
 
-#         # =====================================================
-#         # HEADER
-#         # =====================================================
-
+#         # Header
 #         ws.append([
-#             "CRM Item ID",
-#             "Order ID",
-#             "Product",
-#             "Quantity",
-#             "Dispatch Location",
-#             "Order Packed Time",
+#             "order_id",
+#             "product",
+#             "quantity",
+#             "order_packed_time",  # optional
 #         ])
 
-#         # =====================================================
-#         # FETCH NEW DISPATCH RECORDS
-#         # =====================================================
-
-#         records = (
-#             DispatchRecord.objects
-#             .select_related(
-#                 "crm_item",
-#                 "crm_item__product",
-#                 "crm_item__crm_order",
-#                 "crm_item__crm_order__original_order",
-#             )
-#             .order_by(
-#                 "-order_packed_time",
-#                 "-updated_at",
-#             )
-#         )
-
-#         # =====================================================
-#         # DATA
-#         # =====================================================
-
-#         for record in records:
-
-#             crm_item = record.crm_item
-#             crm_order = crm_item.crm_order
-#             original_order = (
-#                 crm_order.original_order
-#                 if crm_order
-#                 else None
-#             )
-
-#             product = crm_item.product
-
-#             # -------------------------------------------------
-#             # ORDER ID
-#             # -------------------------------------------------
-
-#             order_id = (
-#                 original_order.order_id
-#                 if original_order
-#                 else "-"
-#             )
-
-#             # -------------------------------------------------
-#             # PRODUCT NAME
-#             # -------------------------------------------------
-
-#             product_name = "-"
-
-#             if product:
-#                 product_name = (
-#                     getattr(
-#                         product,
-#                         "product_name",
-#                         None,
-#                     )
-#                     or getattr(
-#                         product,
-#                         "name",
-#                         None,
-#                     )
-#                     or str(product)
-#                 )
-
-#             # -------------------------------------------------
-#             # APPEND ROW
-#             # -------------------------------------------------
-
-#             ws.append([
-#                 crm_item.id,
-#                 order_id,
-#                 product_name,
-#                 record.quantity,
-#                 record.dispatch_location,
-#                 (
-#                     record.order_packed_time.strftime(
-#                         "%Y-%m-%d %H:%M:%S"
-#                     )
-#                     if record.order_packed_time
-#                     else ""
-#                 ),
-#             ])
-
-#         # =====================================================
-#         # EXCEL FORMATTING
-#         # =====================================================
-
-#         ws.freeze_panes = "A2"
-
-#         ws.column_dimensions["A"].width = 16
-#         ws.column_dimensions["B"].width = 18
-#         ws.column_dimensions["C"].width = 35
-#         ws.column_dimensions["D"].width = 14
-#         ws.column_dimensions["E"].width = 20
-#         ws.column_dimensions["F"].width = 24
-
-#         # =====================================================
-#         # RESPONSE
-#         # =====================================================
+#         # Example row (optional)
+#         ws.append([
+#             "ORD-12345",
+#             "Product A",
+#             10,
+#             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+#         ])
 
 #         response = HttpResponse(
-#             content_type=(
-#                 "application/vnd.openxmlformats-officedocument."
-#                 "spreadsheetml.sheet"
-#             )
+#             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 #         )
-
-#         response[
-#             "Content-Disposition"
-#         ] = (
-#             'attachment; filename="dispatch_records.xlsx"'
-#         )
-
+#         response["Content-Disposition"] = "attachment; filename=dispatch_orders.xlsx"
 #         wb.save(response)
-
 #         return response
+
+
+class DownloadDispatchExcel(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Dispatch Records"
+
+        # =====================================================
+        # HEADER
+        # =====================================================
+
+        ws.append([
+            "CRM Item ID",
+            "Order ID",
+            "Product",
+            "Quantity",
+            "Dispatch Location",
+            "Order Packed Time",
+        ])
+
+        # =====================================================
+        # FETCH NEW DISPATCH RECORDS
+        # =====================================================
+
+        records = (
+            DispatchRecord.objects
+            .select_related(
+                "crm_item",
+                "crm_item__product",
+                "crm_item__crm_order",
+                "crm_item__crm_order__original_order",
+            )
+            .order_by(
+                "-order_packed_time",
+                "-updated_at",
+            )
+        )
+
+        # =====================================================
+        # DATA
+        # =====================================================
+
+        for record in records:
+
+            crm_item = record.crm_item
+            crm_order = crm_item.crm_order
+            original_order = (
+                crm_order.original_order
+                if crm_order
+                else None
+            )
+
+            product = crm_item.product
+
+            # -------------------------------------------------
+            # ORDER ID
+            # -------------------------------------------------
+
+            order_id = (
+                original_order.order_id
+                if original_order
+                else "-"
+            )
+
+            # -------------------------------------------------
+            # PRODUCT NAME
+            # -------------------------------------------------
+
+            product_name = "-"
+
+            if product:
+                product_name = (
+                    getattr(
+                        product,
+                        "product_name",
+                        None,
+                    )
+                    or getattr(
+                        product,
+                        "name",
+                        None,
+                    )
+                    or str(product)
+                )
+
+            # -------------------------------------------------
+            # APPEND ROW
+            # -------------------------------------------------
+
+            ws.append([
+                crm_item.id,
+                order_id,
+                product_name,
+                record.quantity,
+                record.dispatch_location,
+                (
+                    record.order_packed_time.strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                    if record.order_packed_time
+                    else ""
+                ),
+            ])
+
+        # =====================================================
+        # EXCEL FORMATTING
+        # =====================================================
+
+        ws.freeze_panes = "A2"
+
+        ws.column_dimensions["A"].width = 16
+        ws.column_dimensions["B"].width = 18
+        ws.column_dimensions["C"].width = 35
+        ws.column_dimensions["D"].width = 14
+        ws.column_dimensions["E"].width = 20
+        ws.column_dimensions["F"].width = 24
+
+        # =====================================================
+        # RESPONSE
+        # =====================================================
+
+        response = HttpResponse(
+            content_type=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            )
+        )
+
+        response[
+            "Content-Disposition"
+        ] = (
+            'attachment; filename="dispatch_records.xlsx"'
+        )
+
+        wb.save(response)
+
+        return response
 
 
 
@@ -4160,1237 +4329,3 @@ class OrderRecordDetailView(APIView):
             serializer.data,
             status=status.HTTP_200_OK,
         )
-
-# from collections import defaultdict
-
-# from django.contrib.auth import get_user_model
-# from django.core.exceptions import FieldDoesNotExist
-# from django.db.models import (
-#     Case,
-#     CharField,
-#     Count,
-#     F,
-#     IntegerField,
-#     OuterRef,
-#     Q,
-#     Subquery,
-#     Sum,
-#     Value,
-#     When,
-# )
-# from django.db.models.functions import Coalesce
-# from django.shortcuts import get_object_or_404
-
-# from rest_framework import status
-# from rest_framework.exceptions import PermissionDenied
-# from rest_framework.pagination import PageNumberPagination
-# from rest_framework.permissions import IsAuthenticated
-# from rest_framework.response import Response
-# from rest_framework.views import APIView
-
-# from .models import (
-#     SSOrder,
-#     SSOrderItem,
-#     CRMVerifiedOrder,
-#     CRMVerifiedOrderItem,
-#     DispatchRecord,
-# )
-
-# from .order_records_serializers import (
-#     OrderRecordListSerializer,
-#     OrderRecordDetailSerializer,
-# )
-
-
-# User = get_user_model()
-
-
-# # ============================================================
-# # PAGINATION
-# # ============================================================
-
-# class OrderRecordPagination(PageNumberPagination):
-#     page_size = 50
-#     page_size_query_param = "page_size"
-#     max_page_size = 100
-
-
-# # ============================================================
-# # USER HELPERS
-# # ============================================================
-
-# def _field_exists(model, field_name):
-#     try:
-#         model._meta.get_field(field_name)
-#         return True
-#     except FieldDoesNotExist:
-#         return False
-
-
-# def _user_display_name(user):
-#     if not user:
-#         return ""
-
-#     for field in (
-#         "party_name",
-#         "name",
-#         "username",
-#         "email",
-#     ):
-#         value = getattr(user, field, None)
-
-#         if value:
-#             return str(value).strip()
-
-#     first_name = getattr(user, "first_name", "") or ""
-#     last_name = getattr(user, "last_name", "") or ""
-
-#     full_name = f"{first_name} {last_name}".strip()
-
-#     return full_name
-
-
-# def _user_mobile(user):
-#     if not user:
-#         return ""
-
-#     for field in (
-#         "mobile",
-#         "phone",
-#         "phone_number",
-#     ):
-#         value = getattr(user, field, None)
-
-#         if value:
-#             return str(value)
-
-#     return ""
-
-
-# def _user_search_q(relation, value):
-#     """
-#     Builds a safe search query according to fields
-#     actually existing on the custom User model.
-#     """
-
-#     query = Q()
-
-#     searchable_fields = [
-#         "party_name",
-#         "name",
-#         "username",
-#         "first_name",
-#         "last_name",
-#         "email",
-#         "mobile",
-#         "phone",
-#         "phone_number",
-#     ]
-
-#     for field in searchable_fields:
-#         if _field_exists(User, field):
-#             query |= Q(
-#                 **{
-#                     f"{relation}__{field}__icontains": value
-#                 }
-#             )
-
-#     return query
-
-
-# # ============================================================
-# # ROLE
-# # ============================================================
-
-# def _get_user_role(user):
-#     role = getattr(user, "role", None)
-
-#     if role is None:
-#         role = getattr(user, "user_type", None)
-
-#     return str(role or "").upper().strip()
-
-
-# def _is_admin(user):
-#     return (
-#         bool(getattr(user, "is_superuser", False))
-#         or bool(getattr(user, "is_staff", False))
-#         or _get_user_role(user) == "ADMIN"
-#     )
-
-
-# # ============================================================
-# # BASE ROLE FILTER
-# # ============================================================
-
-# def _get_role_filtered_queryset(user):
-#     """
-#     IMPORTANT:
-#     Role filtering happens directly in DB.
-#     """
-
-#     queryset = SSOrder.objects.select_related(
-#         "ss_user",
-#         "assigned_crm",
-#     )
-
-#     if _is_admin(user):
-#         return queryset
-
-#     role = _get_user_role(user)
-
-#     if role == "CRM":
-#         return queryset.filter(
-#             assigned_crm=user
-#         )
-
-#     if role == "SS":
-#         return queryset.filter(
-#             ss_user=user
-#         )
-
-#     raise PermissionDenied(
-#         "You are not allowed to access order records."
-#     )
-
-
-# # ============================================================
-# # LATEST VERIFICATION SUBQUERY
-# # ============================================================
-
-# def _latest_verification_queryset():
-#     return (
-#         CRMVerifiedOrder.objects
-#         .filter(
-#             original_order=OuterRef("pk")
-#         )
-#         .order_by(
-#             "-verified_at",
-#             "-pk",
-#         )
-#     )
-
-
-# # ============================================================
-# # ANNOTATED LIST QUERYSET
-# # ============================================================
-
-# def _build_order_records_queryset(user):
-#     queryset = _get_role_filtered_queryset(user)
-
-#     latest_verification = _latest_verification_queryset()
-
-#     latest_verification_id = Subquery(
-#         latest_verification.values("id")[:1],
-#         output_field=IntegerField(),
-#     )
-
-#     latest_verification_status = Subquery(
-#         latest_verification.values("status")[:1],
-#         output_field=CharField(),
-#     )
-
-#     latest_verification_punched = Subquery(
-#         latest_verification.values("punched")[:1],
-#     )
-
-#     latest_verification_date = Subquery(
-#         latest_verification.values("verified_at")[:1],
-#     )
-
-#     latest_dispatch_location = Subquery(
-#         latest_verification.values("dispatch_location")[:1],
-#         output_field=CharField(),
-#     )
-
-#     # --------------------------------------------------------
-#     # VERIFIED ITEM COUNT
-#     # --------------------------------------------------------
-
-#     verified_item_count = Subquery(
-#         CRMVerifiedOrderItem.objects
-#         .filter(
-#             crm_order_id=latest_verification_id
-#         )
-#         .order_by()
-#         .values("crm_order_id")
-#         .annotate(
-#             total=Count("id")
-#         )
-#         .values("total")[:1],
-#         output_field=IntegerField(),
-#     )
-
-#     # --------------------------------------------------------
-#     # DISPATCHABLE ITEM COUNT
-#     # --------------------------------------------------------
-
-#     dispatchable_item_count = Subquery(
-#         CRMVerifiedOrderItem.objects
-#         .filter(
-#             crm_order_id=latest_verification_id,
-#             is_rejected=False,
-#         )
-#         .order_by()
-#         .values("crm_order_id")
-#         .annotate(
-#             total=Count("id")
-#         )
-#         .values("total")[:1],
-#         output_field=IntegerField(),
-#     )
-
-#     # --------------------------------------------------------
-#     # DISPATCHED ITEM COUNT
-#     # --------------------------------------------------------
-
-#     dispatched_item_count = Subquery(
-#         CRMVerifiedOrderItem.objects
-#         .filter(
-#             crm_order_id=latest_verification_id,
-#             is_rejected=False,
-#             dispatch_record__isnull=False,
-#         )
-#         .order_by()
-#         .values("crm_order_id")
-#         .annotate(
-#             total=Count("id")
-#         )
-#         .values("total")[:1],
-#         output_field=IntegerField(),
-#     )
-
-#     # --------------------------------------------------------
-#     # DISPATCHED QUANTITY
-#     # --------------------------------------------------------
-
-#     dispatched_quantity = Subquery(
-#         DispatchRecord.objects
-#         .filter(
-#             crm_item__crm_order_id=latest_verification_id
-#         )
-#         .order_by()
-#         .values(
-#             "crm_item__crm_order_id"
-#         )
-#         .annotate(
-#             total=Sum("quantity")
-#         )
-#         .values("total")[:1],
-#         output_field=IntegerField(),
-#     )
-
-#     queryset = queryset.annotate(
-#         latest_verification_id=latest_verification_id,
-
-#         latest_verification_status=latest_verification_status,
-
-#         latest_verification_punched=latest_verification_punched,
-
-#         latest_verification_date=latest_verification_date,
-
-#         latest_dispatch_location=latest_dispatch_location,
-
-#         items_count=Count(
-#             "items",
-#             distinct=True,
-#         ),
-
-#         verified_item_count=Coalesce(
-#             verified_item_count,
-#             Value(0),
-#             output_field=IntegerField(),
-#         ),
-
-#         dispatchable_item_count=Coalesce(
-#             dispatchable_item_count,
-#             Value(0),
-#             output_field=IntegerField(),
-#         ),
-
-#         dispatched_item_count=Coalesce(
-#             dispatched_item_count,
-#             Value(0),
-#             output_field=IntegerField(),
-#         ),
-
-#         dispatched_quantity=Coalesce(
-#             dispatched_quantity,
-#             Value(0),
-#             output_field=IntegerField(),
-#         ),
-#     )
-
-#     # ========================================================
-#     # DISPATCH STATUS
-#     # ========================================================
-
-#     queryset = queryset.annotate(
-#         dispatch_status=Case(
-
-#             When(
-#                 latest_verification_id__isnull=True,
-#                 then=Value("NOT_VERIFIED"),
-#             ),
-
-#             When(
-#                 dispatchable_item_count=0,
-#                 then=Value("NO_DISPATCH_REQUIRED"),
-#             ),
-
-#             When(
-#                 dispatched_item_count=0,
-#                 then=Value("PENDING"),
-#             ),
-
-#             When(
-#                 dispatched_item_count__gte=F(
-#                     "dispatchable_item_count"
-#                 ),
-#                 then=Value("DISPATCHED"),
-#             ),
-
-#             default=Value("PARTIAL"),
-
-#             output_field=CharField(),
-#         )
-#     )
-
-#     return queryset
-
-
-# # ============================================================
-# # DATE PARSER
-# # ============================================================
-
-# def _get_date(value):
-#     if not value:
-#         return None
-
-#     try:
-#         from datetime import date
-
-#         return date.fromisoformat(value)
-
-#     except (TypeError, ValueError):
-#         return None
-
-
-# # ============================================================
-# # LIST FILTERS
-# # ============================================================
-
-# def _apply_filters(queryset, request):
-
-#     # --------------------------------------------------------
-#     # SEARCH
-#     # --------------------------------------------------------
-
-#     search = str(
-#         request.query_params.get(
-#             "search",
-#             ""
-#         )
-#     ).strip()
-
-#     if search:
-
-#         search_query = Q(
-#             order_id__icontains=search
-#         )
-
-#         search_query |= _user_search_q(
-#             "ss_user",
-#             search
-#         )
-
-#         search_query |= _user_search_q(
-#             "assigned_crm",
-#             search
-#         )
-
-#         queryset = queryset.filter(
-#             search_query
-#         )
-
-#     # --------------------------------------------------------
-#     # PARTY
-#     # --------------------------------------------------------
-
-#     party = str(
-#         request.query_params.get(
-#             "party",
-#             ""
-#         )
-#     ).strip()
-
-#     if party:
-
-#         party_query = _user_search_q(
-#             "ss_user",
-#             party
-#         )
-
-#         queryset = queryset.filter(
-#             party_query
-#         )
-
-#     # --------------------------------------------------------
-#     # ORIGINAL ORDER STATUS
-#     # --------------------------------------------------------
-
-#     order_status = str(
-#         request.query_params.get(
-#             "status",
-#             ""
-#         )
-#     ).strip()
-
-#     if order_status:
-#         queryset = queryset.filter(
-#             status__iexact=order_status
-#         )
-
-#     # --------------------------------------------------------
-#     # VERIFICATION STATUS
-#     # --------------------------------------------------------
-
-#     verification_status = str(
-#         request.query_params.get(
-#             "verification_status",
-#             ""
-#         )
-#     ).strip()
-
-#     if verification_status:
-#         queryset = queryset.filter(
-#             latest_verification_status__iexact=
-#             verification_status
-#         )
-
-#     # --------------------------------------------------------
-#     # PUNCHED
-#     # --------------------------------------------------------
-
-#     punched = str(
-#         request.query_params.get(
-#             "punched",
-#             ""
-#         )
-#     ).strip().lower()
-
-#     if punched in {
-#         "true",
-#         "1",
-#         "yes",
-#     }:
-
-#         queryset = queryset.filter(
-#             latest_verification_punched=True
-#         )
-
-#     elif punched in {
-#         "false",
-#         "0",
-#         "no",
-#     }:
-
-#         queryset = queryset.filter(
-#             latest_verification_punched=False
-#         )
-
-#     # --------------------------------------------------------
-#     # DISPATCH
-#     # --------------------------------------------------------
-
-#     dispatch = str(
-#         request.query_params.get(
-#             "dispatch",
-#             ""
-#         )
-#     ).strip().upper()
-
-#     allowed_dispatch_statuses = {
-#         "NOT_VERIFIED",
-#         "NO_DISPATCH_REQUIRED",
-#         "PENDING",
-#         "PARTIAL",
-#         "DISPATCHED",
-#     }
-
-#     if dispatch in allowed_dispatch_statuses:
-
-#         queryset = queryset.filter(
-#             dispatch_status=dispatch
-#         )
-
-#     # --------------------------------------------------------
-#     # FROM DATE
-#     # --------------------------------------------------------
-
-#     from_date = _get_date(
-#         request.query_params.get(
-#             "from_date"
-#         )
-#     )
-
-#     if from_date:
-
-#         queryset = queryset.filter(
-#             created_at__date__gte=from_date
-#         )
-
-#     # --------------------------------------------------------
-#     # TO DATE
-#     # --------------------------------------------------------
-
-#     to_date = _get_date(
-#         request.query_params.get(
-#             "to_date"
-#         )
-#     )
-
-#     if to_date:
-
-#         queryset = queryset.filter(
-#             created_at__date__lte=to_date
-#         )
-
-#     return queryset
-
-
-# # ============================================================
-# # LIST SERIALIZATION
-# # ============================================================
-
-# def _serialize_list_row(order):
-
-#     total_amount = order.total_amount
-
-#     return {
-#         "id": order.id,
-
-#         "order_id": order.order_id,
-
-#         "ss_party_name": _user_display_name(
-#             order.ss_user
-#         ),
-
-#         "ss_user_name": _user_display_name(
-#             order.ss_user
-#         ),
-
-#         "crm_name": _user_display_name(
-#             order.assigned_crm
-#         ),
-
-#         "total_amount": str(
-#             total_amount
-#         ),
-
-#         "status": order.status or "",
-
-#         "verification_status":
-#             getattr(
-#                 order,
-#                 "latest_verification_status",
-#                 None,
-#             ),
-
-#         "punched":
-#             getattr(
-#                 order,
-#                 "latest_verification_punched",
-#                 None,
-#             ),
-
-#         "items_count":
-#             int(
-#                 getattr(
-#                     order,
-#                     "items_count",
-#                     0
-#                 ) or 0
-#             ),
-#             "verified_items_count": int(
-#     getattr(order, "verified_item_count", 0) or 0
-# ),
-#         "dispatched_items_count":
-#             int(
-#                 getattr(
-#                     order,
-#                     "dispatched_item_count",
-#                     0
-#                 ) or 0
-#             ),
-
-#         "dispatched_quantity":
-#             int(
-#                 getattr(
-#                     order,
-#                     "dispatched_quantity",
-#                     0
-#                 ) or 0
-#             ),
-
-#         "dispatch_status":
-#             getattr(
-#                 order,
-#                 "dispatch_status",
-#                 "NOT_VERIFIED",
-#             ),
-
-#         "created_at":
-#             order.created_at.isoformat()
-#             if order.created_at
-#             else "",
-#     }
-
-
-# # ============================================================
-# # DETAIL HELPERS
-# # ============================================================
-
-# def _product_name(product):
-
-#     if not product:
-#         return ""
-
-#     for field in (
-#         "product_name",
-#         "name",
-#         "title",
-#     ):
-
-#         value = getattr(
-#             product,
-#             field,
-#             None
-#         )
-
-#         if value:
-#             return str(value)
-
-#     return str(product)
-
-
-# def _get_dispatch_record(crm_item):
-
-#     try:
-#         return crm_item.dispatch_record
-
-#     except DispatchRecord.DoesNotExist:
-#         return None
-
-
-# # ============================================================
-# # DETAIL QUERY
-# # ============================================================
-
-# def _get_latest_verification(order):
-
-#     return (
-#         CRMVerifiedOrder.objects
-#         .filter(
-#             original_order=order
-#         )
-#         .select_related(
-#             "crm_user"
-#         )
-#         .prefetch_related(
-#             "items__product"
-#         )
-#         .order_by(
-#             "-verified_at",
-#             "-pk",
-#         )
-#         .first()
-#     )
-
-
-# # ============================================================
-# # DETAIL RESPONSE
-# # ============================================================
-
-# def _build_detail_response(order):
-
-#     original_items = list(
-#         order.items
-#         .select_related("product")
-#         .all()
-#     )
-
-#     verification = _get_latest_verification(
-#         order
-#     )
-
-#     # ========================================================
-#     # NO VERIFICATION YET
-#     # ========================================================
-
-#     if not verification:
-
-#         detail_items = []
-
-#         for original_item in original_items:
-
-#             detail_items.append({
-#                 "crm_item_id": None,
-
-#                 "product_id":
-#                     original_item.product_id,
-
-#                 "product_name":
-#                     _product_name(
-#                         original_item.product
-#                     ),
-
-#                 "ordered_quantity":
-#                     original_item.quantity,
-
-#                 "verified_quantity":
-#                     None,
-
-#                 "rejected": False,
-
-#                 "dispatch_quantity": 0,
-
-#                 "dispatch_location": None,
-
-#                 "order_packed_time": None,
-#             })
-
-#         summary = {
-#             "items_count": len(
-#                 original_items
-#             ),
-
-#             "verified_items_count": 0,
-
-#             "dispatchable_items_count": 0,
-
-#             "dispatched_items_count": 0,
-
-#             "dispatched_quantity": 0,
-
-#             "dispatch_status":
-#                 "NOT_VERIFIED",
-#         }
-
-#         return {
-#             "order_id": order.order_id,
-
-#             "total_amount":
-#                 str(order.total_amount),
-
-#             "status":
-#                 order.status or "",
-
-#             "created_at":
-#                 order.created_at.isoformat()
-#                 if order.created_at
-#                 else "",
-
-#             "ss_user": {
-#                 "party_name":
-#                     _user_display_name(
-#                         order.ss_user
-#                     ),
-
-#                 "name":
-#                     _user_display_name(
-#                         order.ss_user
-#                     ),
-
-#                 "mobile":
-#                     _user_mobile(
-#                         order.ss_user
-#                     ),
-#             },
-
-#             "crm_user": {
-#                 "name": "",
-#                 "mobile": "",
-#             },
-
-#             "verification": None,
-
-#             "summary": summary,
-
-#             "items": detail_items,
-
-#             "note":
-#                 order.note or "",
-
-#             "notes":
-#                 order.notes or "",
-#         }
-
-#     # ========================================================
-#     # VERIFIED ITEMS
-#     # ========================================================
-
-#     verified_items = list(
-#         verification.items
-#         .select_related("product")
-#         .prefetch_related("dispatch_record")
-#         .all()
-#     )
-
-#     # ========================================================
-#     # MATCH ORIGINAL ITEMS
-#     # ========================================================
-
-#     original_by_product = defaultdict(list)
-
-#     for item in original_items:
-
-#         original_by_product[
-#             item.product_id
-#         ].append(item)
-
-#     detail_items = []
-
-#     dispatched_quantity_total = 0
-
-#     dispatched_items_count = 0
-
-#     dispatchable_items_count = 0
-
-#     for crm_item in verified_items:
-
-#         original_item = None
-
-#         candidates = original_by_product.get(
-#             crm_item.product_id
-#         )
-
-#         if candidates:
-
-#             original_item = candidates.pop(0)
-
-#         dispatch = _get_dispatch_record(
-#             crm_item
-#         )
-
-#         dispatch_quantity = (
-#             int(dispatch.quantity)
-#             if dispatch
-#             else 0
-#         )
-
-#         if not crm_item.is_rejected:
-
-#             dispatchable_items_count += 1
-
-#             if dispatch:
-
-#                 dispatched_items_count += 1
-
-#                 dispatched_quantity_total += (
-#                     dispatch_quantity
-#                 )
-
-#         detail_items.append({
-
-#             "crm_item_id":
-#                 crm_item.id,
-
-#             "product_id":
-#                 crm_item.product_id,
-
-#             "product_name":
-#                 _product_name(
-#                     crm_item.product
-#                 ),
-
-#             "ordered_quantity":
-#                 (
-#                     original_item.quantity
-#                     if original_item
-#                     else 0
-#                 ),
-
-#             "verified_quantity":
-#                 crm_item.quantity,
-
-#             "rejected":
-#                 bool(
-#                     crm_item.is_rejected
-#                 ),
-
-#             "dispatch_quantity":
-#                 dispatch_quantity,
-
-#             "dispatch_location":
-#                 (
-#                     dispatch.dispatch_location
-#                     if dispatch
-#                     else None
-#                 ),
-
-#             "order_packed_time":
-#                 (
-#                     dispatch.order_packed_time.isoformat()
-#                     if dispatch
-#                     and dispatch.order_packed_time
-#                     else None
-#                 ),
-#         })
-
-#     # ========================================================
-#     # ORIGINAL ITEMS THAT DID NOT HAVE CRM ITEM
-#     # ========================================================
-
-#     for product_id, remaining_items in (
-#         original_by_product.items()
-#     ):
-
-#         for original_item in remaining_items:
-
-#             detail_items.append({
-
-#                 "crm_item_id": None,
-
-#                 "product_id":
-#                     original_item.product_id,
-
-#                 "product_name":
-#                     _product_name(
-#                         original_item.product
-#                     ),
-
-#                 "ordered_quantity":
-#                     original_item.quantity,
-
-#                 "verified_quantity":
-#                     None,
-
-#                 "rejected": False,
-
-#                 "dispatch_quantity": 0,
-
-#                 "dispatch_location": None,
-
-#                 "order_packed_time": None,
-#             })
-
-#     # ========================================================
-#     # DISPATCH STATUS
-#     # ========================================================
-
-#     if dispatchable_items_count == 0:
-
-#         dispatch_status = (
-#             "NO_DISPATCH_REQUIRED"
-#         )
-
-#     elif dispatched_items_count == 0:
-
-#         dispatch_status = "PENDING"
-
-#     elif (
-#         dispatched_items_count
-#         >= dispatchable_items_count
-#     ):
-
-#         dispatch_status = "DISPATCHED"
-
-#     else:
-
-#         dispatch_status = "PARTIAL"
-
-#     # ========================================================
-#     # FINAL RESPONSE
-#     # ========================================================
-
-#     return {
-
-#         "order_id":
-#             order.order_id,
-
-#         "total_amount":
-#             str(order.total_amount),
-
-#         "status":
-#             order.status or "",
-
-#         "created_at":
-#             order.created_at.isoformat()
-#             if order.created_at
-#             else "",
-
-#         "ss_user": {
-
-#             "party_name":
-#                 _user_display_name(
-#                     order.ss_user
-#                 ),
-
-#             "name":
-#                 _user_display_name(
-#                     order.ss_user
-#                 ),
-
-#             "mobile":
-#                 _user_mobile(
-#                     order.ss_user
-#                 ),
-#         },
-
-#         "crm_user": {
-
-#             "name":
-#                 _user_display_name(
-#                     verification.crm_user
-#                 ),
-
-#             "mobile":
-#                 _user_mobile(
-#                     verification.crm_user
-#                 ),
-#         },
-
-#         "verification": {
-
-#             "status":
-#                 verification.status,
-
-#             "punched":
-#                 bool(
-#                     verification.punched
-#                 ),
-
-#             "crm_name":
-#                 _user_display_name(
-#                     verification.crm_user
-#                 ),
-
-#             "verified_at":
-#                 (
-#                     verification.verified_at.isoformat()
-#                     if verification.verified_at
-#                     else None
-#                 ),
-#                 "dispatch_location": verification.dispatch_location,
-#         },
-
-#         "summary": {
-
-#             "items_count":
-#                 len(original_items),
-
-#             "verified_items_count":
-#                 len(verified_items),
-
-#             "dispatchable_items_count":
-#                 dispatchable_items_count,
-
-#             "dispatched_items_count":
-#                 dispatched_items_count,
-
-#             "dispatched_quantity":
-#                 dispatched_quantity_total,
-
-#             "dispatch_status":
-#                 dispatch_status,
-#         },
-
-#         "items":
-#             detail_items,
-
-#         "note":
-#             order.note or "",
-
-#         "notes":
-#             order.notes or "",
-#     }
-
-
-# # ============================================================
-# # LIST API
-# # ============================================================
-
-# class OrderRecordsListView(APIView):
-
-#     permission_classes = [
-#         IsAuthenticated
-#     ]
-
-#     pagination_class = (
-#         OrderRecordPagination
-#     )
-
-#     def get(self, request):
-
-#         queryset = _build_order_records_queryset(
-#             request.user
-#         )
-
-#         queryset = _apply_filters(
-#             queryset,
-#             request
-#         )
-
-#         queryset = queryset.order_by(
-#             "-created_at",
-#             "-pk",
-#         )
-
-#         paginator = self.pagination_class()
-
-#         page = paginator.paginate_queryset(
-#             queryset,
-#             request,
-#             view=self,
-#         )
-
-#         data = [
-#             _serialize_list_row(order)
-#             for order in page
-#         ]
-
-#         serializer = OrderRecordListSerializer(
-#             data,
-#             many=True,
-#         )
-
-#         return paginator.get_paginated_response(
-#             serializer.data
-#         )
-
-
-# # ============================================================
-# # DETAIL API
-# # ============================================================
-
-# class OrderRecordDetailView(APIView):
-
-#     permission_classes = [
-#         IsAuthenticated
-#     ]
-
-#     def get(self, request, pk):
-
-#         queryset = _get_role_filtered_queryset(
-#             request.user
-#         )
-
-#         order = get_object_or_404(
-#             queryset,
-#             pk=pk,
-#         )
-
-#         data = _build_detail_response(
-#             order
-#         )
-
-#         serializer = OrderRecordDetailSerializer(
-#             data
-#         )
-
-#         return Response(
-#             serializer.data,
-#             status=status.HTTP_200_OK,
-#         )
-
