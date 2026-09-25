@@ -2,31 +2,20 @@ from rest_framework import serializers
 
 
 class OrderRecordListSerializer(serializers.Serializer):
-    """
-    Lightweight serializer for the order-records list.
-    No nested order items are returned here.
-    """
-
     id = serializers.IntegerField()
     order_id = serializers.CharField(allow_null=True)
-
     ss_party_name = serializers.CharField(allow_blank=True)
     ss_user_name = serializers.CharField(allow_blank=True)
     crm_name = serializers.CharField(allow_blank=True)
-
     total_amount = serializers.CharField()
-
     status = serializers.CharField(allow_blank=True)
     verification_status = serializers.CharField(allow_null=True)
     punched = serializers.BooleanField(allow_null=True)
-
     items_count = serializers.IntegerField()
     verified_items_count = serializers.IntegerField()
     dispatched_items_count = serializers.IntegerField()
     dispatched_quantity = serializers.IntegerField()
-
     dispatch_status = serializers.CharField()
-
     created_at = serializers.CharField()
 
 

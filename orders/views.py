@@ -2600,9 +2600,8 @@ class DispatchExcelUploadView(APIView):
         )
 
 
-
-
 from collections import defaultdict
+from datetime import datetime, time, timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import FieldDoesNotExist
@@ -2610,6 +2609,7 @@ from django.db.models import (
     Case,
     CharField,
     Count,
+    Exists,
     F,
     IntegerField,
     OuterRef,
@@ -2621,6 +2621,7 @@ from django.db.models import (
 )
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
@@ -2646,9 +2647,9 @@ from .order_records_serializers import (
 User = get_user_model()
 
 
-# ============================================================
+# ============================================================================
 # PAGINATION
-# ============================================================
+# ============================================================================
 
 class OrderRecordPagination(PageNumberPagination):
     page_size = 50
@@ -2656,9 +2657,9 @@ class OrderRecordPagination(PageNumberPagination):
     max_page_size = 100
 
 
-# ============================================================
-# USER HELPERS
-# ============================================================
+# ============================================================================
+# BASIC HELPERS
+# ============================================================================
 
 def _field_exists(model, field_name):
     try:
@@ -2686,9 +2687,7 @@ def _user_display_name(user):
     first_name = getattr(user, "first_name", "") or ""
     last_name = getattr(user, "last_name", "") or ""
 
-    full_name = f"{first_name} {last_name}".strip()
-
-    return full_name
+    return f"{first_name} {last_name}".strip()
 
 
 def _user_mobile(user):
@@ -2709,11 +2708,6 @@ def _user_mobile(user):
 
 
 def _user_search_q(relation, value):
-    """
-    Builds a safe search query according to fields
-    actually existing on the custom User model.
-    """
-
     query = Q()
 
     searchable_fields = [
@@ -2739,10 +2733,6 @@ def _user_search_q(relation, value):
     return query
 
 
-# ============================================================
-# ROLE
-# ============================================================
-
 def _get_user_role(user):
     role = getattr(user, "role", None)
 
@@ -2760,19 +2750,26 @@ def _is_admin(user):
     )
 
 
-# ============================================================
-# BASE ROLE FILTER
-# ============================================================
+# ============================================================================
+# ROLE FILTERING
+#
+# IMPORTANT:
+# This queryset intentionally stays LIGHT.
+# No item joins.
+# No verification subqueries.
+# No dispatch annotations.
+#
+# This is what makes the normal first-page request fast.
+# ============================================================================
 
 def _get_role_filtered_queryset(user):
-    """
-    IMPORTANT:
-    Role filtering happens directly in DB.
-    """
 
-    queryset = SSOrder.objects.select_related(
-        "ss_user",
-        "assigned_crm",
+    queryset = (
+        SSOrder.objects
+        .select_related(
+            "ss_user",
+            "assigned_crm",
+        )
     )
 
     if _is_admin(user):
@@ -2795,9 +2792,12 @@ def _get_role_filtered_queryset(user):
     )
 
 
-# ============================================================
+# ============================================================================
 # LATEST VERIFICATION SUBQUERY
-# ============================================================
+#
+# Used ONLY when verification-related filtering is requested.
+# Normal page loading does NOT use this.
+# ============================================================================
 
 def _latest_verification_queryset():
     return (
@@ -2812,59 +2812,318 @@ def _latest_verification_queryset():
     )
 
 
-# ============================================================
-# ANNOTATED LIST QUERYSET
-# ============================================================
+def _latest_verification_id_subquery():
+    return Subquery(
+        _latest_verification_queryset()
+        .values("id")[:1],
+        output_field=IntegerField(),
+    )
 
-def _build_order_records_queryset(user):
-    queryset = _get_role_filtered_queryset(user)
 
-    latest_verification = _latest_verification_queryset()
+# ============================================================================
+# DATE HELPERS
+# ============================================================================
+
+def _get_date(value):
+    if not value:
+        return None
+
+    try:
+        from datetime import date
+
+        return date.fromisoformat(value)
+
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_date_filters(queryset, request):
+
+    from_date = _get_date(
+        request.query_params.get("from_date")
+    )
+
+    to_date = _get_date(
+        request.query_params.get("to_date")
+    )
+
+    # ------------------------------------------------------------------------
+    # IMPORTANT:
+    # Do NOT use created_at__date__gte/lte.
+    #
+    # Using a datetime range keeps the normal created_at index usable.
+    # ------------------------------------------------------------------------
+
+    if from_date:
+        start_datetime = timezone.make_aware(
+            datetime.combine(
+                from_date,
+                time.min,
+            )
+        )
+
+        queryset = queryset.filter(
+            created_at__gte=start_datetime
+        )
+
+    if to_date:
+        end_datetime = timezone.make_aware(
+            datetime.combine(
+                to_date + timedelta(days=1),
+                time.min,
+            )
+        )
+
+        queryset = queryset.filter(
+            created_at__lt=end_datetime
+        )
+
+    return queryset
+
+
+# ============================================================================
+# NORMAL FILTERS
+# ============================================================================
+
+def _apply_basic_filters(queryset, request):
+
+    # ------------------------------------------------------------------------
+    # SEARCH
+    #
+    # Accept both:
+    #   ?search=
+    #   ?q=
+    #
+    # This protects the API from frontend parameter mismatch.
+    # ------------------------------------------------------------------------
+
+    search = (
+        request.query_params.get("search")
+        or request.query_params.get("q")
+        or ""
+    )
+
+    search = str(search).strip()
+
+    if search:
+
+        search_query = Q(
+            order_id__icontains=search
+        )
+
+        search_query |= _user_search_q(
+            "ss_user",
+            search,
+        )
+
+        search_query |= _user_search_q(
+            "assigned_crm",
+            search,
+        )
+
+        queryset = queryset.filter(
+            search_query
+        )
+
+    # ------------------------------------------------------------------------
+    # PARTY
+    # ------------------------------------------------------------------------
+
+    party = str(
+        request.query_params.get(
+            "party",
+            ""
+        )
+    ).strip()
+
+    if party:
+
+        party_query = _user_search_q(
+            "ss_user",
+            party,
+        )
+
+        queryset = queryset.filter(
+            party_query
+        )
+
+    # ------------------------------------------------------------------------
+    # ORDER STATUS
+    # ------------------------------------------------------------------------
+
+    order_status = str(
+        request.query_params.get(
+            "status",
+            ""
+        )
+    ).strip()
+
+    if order_status:
+
+        queryset = queryset.filter(
+            status__iexact=order_status
+        )
+
+    # ------------------------------------------------------------------------
+    # DATES
+    # ------------------------------------------------------------------------
+
+    queryset = _apply_date_filters(
+        queryset,
+        request,
+    )
+
+    return queryset
+
+
+# ============================================================================
+# VERIFICATION FILTERS
+#
+# These are only applied when the user actually selects them.
+# ============================================================================
+
+def _apply_verification_filters(queryset, request):
+
+    verification_status = str(
+        request.query_params.get(
+            "verification_status",
+            ""
+        )
+    ).strip()
+
+    punched = str(
+        request.query_params.get(
+            "punched",
+            ""
+        )
+    ).strip().lower()
+
+    needs_verification_filter = bool(
+        verification_status
+        or punched in {
+            "true",
+            "1",
+            "yes",
+            "false",
+            "0",
+            "no",
+        }
+    )
+
+    if not needs_verification_filter:
+        return queryset
+
+    latest_verification_id = (
+        _latest_verification_id_subquery()
+    )
+
+    queryset = queryset.annotate(
+        _latest_verification_id=latest_verification_id
+    )
+
+    # ------------------------------------------------------------------------
+    # VERIFICATION STATUS
+    # ------------------------------------------------------------------------
+
+    if verification_status:
+
+        latest_status = Subquery(
+            CRMVerifiedOrder.objects
+            .filter(
+                pk=OuterRef(
+                    "_latest_verification_id"
+                )
+            )
+            .values("status")[:1],
+            output_field=CharField(),
+        )
+
+        queryset = queryset.annotate(
+            _latest_verification_status=latest_status
+        )
+
+        queryset = queryset.filter(
+            _latest_verification_status__iexact=(
+                verification_status
+            )
+        )
+
+    # ------------------------------------------------------------------------
+    # PUNCHED
+    # ------------------------------------------------------------------------
+
+    if punched in {
+        "true",
+        "1",
+        "yes",
+        "false",
+        "0",
+        "no",
+    }:
+
+        punched_value = punched in {
+            "true",
+            "1",
+            "yes",
+        }
+
+        latest_punched = Subquery(
+            CRMVerifiedOrder.objects
+            .filter(
+                pk=OuterRef(
+                    "_latest_verification_id"
+                )
+            )
+            .values("punched")[:1]
+        )
+
+        queryset = queryset.annotate(
+            _latest_punched=latest_punched
+        )
+
+        queryset = queryset.filter(
+            _latest_punched=punched_value
+        )
+
+    return queryset
+
+
+# ============================================================================
+# DISPATCH FILTER
+#
+# This is intentionally kept out of the normal page query.
+# It only executes when the user actually selects a dispatch filter.
+# ============================================================================
+
+def _apply_dispatch_filter(queryset, request):
+
+    dispatch = str(
+        request.query_params.get(
+            "dispatch",
+            ""
+        )
+    ).strip().upper()
+
+    allowed_dispatch_statuses = {
+        "NOT_VERIFIED",
+        "NO_DISPATCH_REQUIRED",
+        "PENDING",
+        "PARTIAL",
+        "DISPATCHED",
+    }
+
+    if dispatch not in allowed_dispatch_statuses:
+        return queryset
+
+    latest_verification = (
+        _latest_verification_queryset()
+    )
 
     latest_verification_id = Subquery(
-        latest_verification.values("id")[:1],
+        latest_verification
+        .values("id")[:1],
         output_field=IntegerField(),
     )
-
-    latest_verification_status = Subquery(
-        latest_verification.values("status")[:1],
-        output_field=CharField(),
-    )
-
-    latest_verification_punched = Subquery(
-        latest_verification.values("punched")[:1],
-    )
-
-    latest_verification_date = Subquery(
-        latest_verification.values("verified_at")[:1],
-    )
-
-    latest_dispatch_location = Subquery(
-        latest_verification.values("dispatch_location")[:1],
-        output_field=CharField(),
-    )
-
-    # --------------------------------------------------------
-    # VERIFIED ITEM COUNT
-    # --------------------------------------------------------
-
-    verified_item_count = Subquery(
-        CRMVerifiedOrderItem.objects
-        .filter(
-            crm_order_id=latest_verification_id
-        )
-        .order_by()
-        .values("crm_order_id")
-        .annotate(
-            total=Count("id")
-        )
-        .values("total")[:1],
-        output_field=IntegerField(),
-    )
-
-    # --------------------------------------------------------
-    # DISPATCHABLE ITEM COUNT
-    # --------------------------------------------------------
 
     dispatchable_item_count = Subquery(
         CRMVerifiedOrderItem.objects
@@ -2880,10 +3139,6 @@ def _build_order_records_queryset(user):
         .values("total")[:1],
         output_field=IntegerField(),
     )
-
-    # --------------------------------------------------------
-    # DISPATCHED ITEM COUNT
-    # --------------------------------------------------------
 
     dispatched_item_count = Subquery(
         CRMVerifiedOrderItem.objects
@@ -2901,396 +3156,100 @@ def _build_order_records_queryset(user):
         output_field=IntegerField(),
     )
 
-    # --------------------------------------------------------
-    # DISPATCHED QUANTITY
-    # --------------------------------------------------------
-
-    dispatched_quantity = Subquery(
-        DispatchRecord.objects
-        .filter(
-            crm_item__crm_order_id=latest_verification_id
-        )
-        .order_by()
-        .values(
-            "crm_item__crm_order_id"
-        )
-        .annotate(
-            total=Sum("quantity")
-        )
-        .values("total")[:1],
-        output_field=IntegerField(),
-    )
-
     queryset = queryset.annotate(
-        latest_verification_id=latest_verification_id,
-
-        latest_verification_status=latest_verification_status,
-
-        latest_verification_punched=latest_verification_punched,
-
-        latest_verification_date=latest_verification_date,
-
-        latest_dispatch_location=latest_dispatch_location,
-
-        items_count=Count(
-            "items",
-            distinct=True,
-        ),
-
-        verified_item_count=Coalesce(
-            verified_item_count,
-            Value(0),
-            output_field=IntegerField(),
-        ),
-
-        dispatchable_item_count=Coalesce(
+        _latest_verification_id=latest_verification_id,
+        _dispatchable_item_count=Coalesce(
             dispatchable_item_count,
             Value(0),
             output_field=IntegerField(),
         ),
-
-        dispatched_item_count=Coalesce(
+        _dispatched_item_count=Coalesce(
             dispatched_item_count,
             Value(0),
             output_field=IntegerField(),
         ),
-
-        dispatched_quantity=Coalesce(
-            dispatched_quantity,
-            Value(0),
-            output_field=IntegerField(),
-        ),
     )
 
-    # ========================================================
-    # DISPATCH STATUS
-    # ========================================================
+    # ------------------------------------------------------------------------
+    # NOT VERIFIED
+    # ------------------------------------------------------------------------
 
-    queryset = queryset.annotate(
-        dispatch_status=Case(
+    if dispatch == "NOT_VERIFIED":
 
-            When(
-                latest_verification_id__isnull=True,
-                then=Value("NOT_VERIFIED"),
-            ),
-
-            When(
-                dispatchable_item_count=0,
-                then=Value("NO_DISPATCH_REQUIRED"),
-            ),
-
-            When(
-                dispatched_item_count=0,
-                then=Value("PENDING"),
-            ),
-
-            When(
-                dispatched_item_count__gte=F(
-                    "dispatchable_item_count"
-                ),
-                then=Value("DISPATCHED"),
-            ),
-
-            default=Value("PARTIAL"),
-
-            output_field=CharField(),
+        return queryset.filter(
+            _latest_verification_id__isnull=True
         )
+
+    # ------------------------------------------------------------------------
+    # ALL REMAINING STATUSES REQUIRE VERIFICATION
+    # ------------------------------------------------------------------------
+
+    queryset = queryset.filter(
+        _latest_verification_id__isnull=False
     )
+
+    if dispatch == "NO_DISPATCH_REQUIRED":
+
+        return queryset.filter(
+            _dispatchable_item_count=0
+        )
+
+    if dispatch == "PENDING":
+
+        return queryset.filter(
+            _dispatchable_item_count__gt=0,
+            _dispatched_item_count=0,
+        )
+
+    if dispatch == "DISPATCHED":
+
+        return queryset.filter(
+            _dispatchable_item_count__gt=0,
+            _dispatched_item_count__gte=F(
+                "_dispatchable_item_count"
+            ),
+        )
+
+    if dispatch == "PARTIAL":
+
+        return queryset.filter(
+            _dispatchable_item_count__gt=0,
+            _dispatched_item_count__gt=0,
+            _dispatched_item_count__lt=F(
+                "_dispatchable_item_count"
+            ),
+        )
 
     return queryset
 
 
-# ============================================================
-# DATE PARSER
-# ============================================================
-
-def _get_date(value):
-    if not value:
-        return None
-
-    try:
-        from datetime import date
-
-        return date.fromisoformat(value)
-
-    except (TypeError, ValueError):
-        return None
-
-
-# ============================================================
-# LIST FILTERS
-# ============================================================
+# ============================================================================
+# ALL LIST FILTERS
+# ============================================================================
 
 def _apply_filters(queryset, request):
 
-    # --------------------------------------------------------
-    # SEARCH
-    # --------------------------------------------------------
-
-    search = str(
-        request.query_params.get(
-            "search",
-            ""
-        )
-    ).strip()
-
-    if search:
-
-        search_query = Q(
-            order_id__icontains=search
-        )
-
-        search_query |= _user_search_q(
-            "ss_user",
-            search
-        )
-
-        search_query |= _user_search_q(
-            "assigned_crm",
-            search
-        )
-
-        queryset = queryset.filter(
-            search_query
-        )
-
-    # --------------------------------------------------------
-    # PARTY
-    # --------------------------------------------------------
-
-    party = str(
-        request.query_params.get(
-            "party",
-            ""
-        )
-    ).strip()
-
-    if party:
-
-        party_query = _user_search_q(
-            "ss_user",
-            party
-        )
-
-        queryset = queryset.filter(
-            party_query
-        )
-
-    # --------------------------------------------------------
-    # ORIGINAL ORDER STATUS
-    # --------------------------------------------------------
-
-    order_status = str(
-        request.query_params.get(
-            "status",
-            ""
-        )
-    ).strip()
-
-    if order_status:
-        queryset = queryset.filter(
-            status__iexact=order_status
-        )
-
-    # --------------------------------------------------------
-    # VERIFICATION STATUS
-    # --------------------------------------------------------
-
-    verification_status = str(
-        request.query_params.get(
-            "verification_status",
-            ""
-        )
-    ).strip()
-
-    if verification_status:
-        queryset = queryset.filter(
-            latest_verification_status__iexact=
-            verification_status
-        )
-
-    # --------------------------------------------------------
-    # PUNCHED
-    # --------------------------------------------------------
-
-    punched = str(
-        request.query_params.get(
-            "punched",
-            ""
-        )
-    ).strip().lower()
-
-    if punched in {
-        "true",
-        "1",
-        "yes",
-    }:
-
-        queryset = queryset.filter(
-            latest_verification_punched=True
-        )
-
-    elif punched in {
-        "false",
-        "0",
-        "no",
-    }:
-
-        queryset = queryset.filter(
-            latest_verification_punched=False
-        )
-
-    # --------------------------------------------------------
-    # DISPATCH
-    # --------------------------------------------------------
-
-    dispatch = str(
-        request.query_params.get(
-            "dispatch",
-            ""
-        )
-    ).strip().upper()
-
-    allowed_dispatch_statuses = {
-        "NOT_VERIFIED",
-        "NO_DISPATCH_REQUIRED",
-        "PENDING",
-        "PARTIAL",
-        "DISPATCHED",
-    }
-
-    if dispatch in allowed_dispatch_statuses:
-
-        queryset = queryset.filter(
-            dispatch_status=dispatch
-        )
-
-    # --------------------------------------------------------
-    # FROM DATE
-    # --------------------------------------------------------
-
-    from_date = _get_date(
-        request.query_params.get(
-            "from_date"
-        )
+    queryset = _apply_basic_filters(
+        queryset,
+        request,
     )
 
-    if from_date:
-
-        queryset = queryset.filter(
-            created_at__date__gte=from_date
-        )
-
-    # --------------------------------------------------------
-    # TO DATE
-    # --------------------------------------------------------
-
-    to_date = _get_date(
-        request.query_params.get(
-            "to_date"
-        )
+    queryset = _apply_verification_filters(
+        queryset,
+        request,
     )
 
-    if to_date:
-
-        queryset = queryset.filter(
-            created_at__date__lte=to_date
-        )
+    queryset = _apply_dispatch_filter(
+        queryset,
+        request,
+    )
 
     return queryset
 
 
-# ============================================================
-# LIST SERIALIZATION
-# ============================================================
-
-def _serialize_list_row(order):
-
-    total_amount = order.total_amount
-
-    return {
-        "id": order.id,
-
-        "order_id": order.order_id,
-
-        "ss_party_name": _user_display_name(
-            order.ss_user
-        ),
-
-        "ss_user_name": _user_display_name(
-            order.ss_user
-        ),
-
-        "crm_name": _user_display_name(
-            order.assigned_crm
-        ),
-
-        "total_amount": str(
-            total_amount
-        ),
-
-        "status": order.status or "",
-
-        "verification_status":
-            getattr(
-                order,
-                "latest_verification_status",
-                None,
-            ),
-
-        "punched":
-            getattr(
-                order,
-                "latest_verification_punched",
-                None,
-            ),
-
-        "items_count":
-            int(
-                getattr(
-                    order,
-                    "items_count",
-                    0
-                ) or 0
-            ),
-            "verified_items_count": int(
-    getattr(order, "verified_item_count", 0) or 0
-),
-        "dispatched_items_count":
-            int(
-                getattr(
-                    order,
-                    "dispatched_item_count",
-                    0
-                ) or 0
-            ),
-
-        "dispatched_quantity":
-            int(
-                getattr(
-                    order,
-                    "dispatched_quantity",
-                    0
-                ) or 0
-            ),
-
-        "dispatch_status":
-            getattr(
-                order,
-                "dispatch_status",
-                "NOT_VERIFIED",
-            ),
-
-        "created_at":
-            order.created_at.isoformat()
-            if order.created_at
-            else "",
-    }
-
-
-# ============================================================
-# DETAIL HELPERS
-# ============================================================
+# ============================================================================
+# PRODUCT HELPER
+# ============================================================================
 
 def _product_name(product):
 
@@ -3306,7 +3265,7 @@ def _product_name(product):
         value = getattr(
             product,
             field,
-            None
+            None,
         )
 
         if value:
@@ -3314,6 +3273,10 @@ def _product_name(product):
 
     return str(product)
 
+
+# ============================================================================
+# DISPATCH RECORD HELPER
+# ============================================================================
 
 def _get_dispatch_record(crm_item):
 
@@ -3324,9 +3287,322 @@ def _get_dispatch_record(crm_item):
         return None
 
 
-# ============================================================
-# DETAIL QUERY
-# ============================================================
+# ============================================================================
+# BULK LIST ENRICHMENT
+#
+# IMPORTANT:
+# This is the main performance improvement.
+#
+# We first paginate SSOrder to 50 records.
+# ONLY THEN do we fetch verification/items/dispatch information
+# for those 50 orders.
+# ============================================================================
+
+def _build_bulk_list_data(orders):
+
+    if not orders:
+        return {}
+
+    order_ids = [
+        order.id
+        for order in orders
+    ]
+
+    # ------------------------------------------------------------------------
+    # 1. ORIGINAL ITEM COUNTS
+    #
+    # One query for the current page only.
+    # ------------------------------------------------------------------------
+
+    original_item_counts = defaultdict(int)
+
+    original_item_rows = (
+        SSOrderItem.objects
+        .filter(
+            order_id__in=order_ids
+        )
+        .values(
+            "order_id"
+        )
+        .annotate(
+            total=Count("id")
+        )
+    )
+
+    for row in original_item_rows:
+
+        original_item_counts[
+            row["order_id"]
+        ] = int(
+            row["total"] or 0
+        )
+
+    # ------------------------------------------------------------------------
+    # 2. LATEST VERIFICATION FOR CURRENT PAGE
+    #
+    # We fetch ALL verification rows belonging to these 50 orders.
+    # Then pick the latest one in Python.
+    #
+    # This avoids one correlated subquery for every order.
+    # ------------------------------------------------------------------------
+
+    verification_rows = (
+        CRMVerifiedOrder.objects
+        .filter(
+            original_order_id__in=order_ids
+        )
+        .select_related(
+            "crm_user"
+        )
+        .order_by(
+            "original_order_id",
+            "-verified_at",
+            "-pk",
+        )
+    )
+
+    latest_verifications = {}
+
+    for verification in verification_rows:
+
+        if (
+            verification.original_order_id
+            not in latest_verifications
+        ):
+
+            latest_verifications[
+                verification.original_order_id
+            ] = verification
+
+    verification_ids = [
+        verification.id
+        for verification in latest_verifications.values()
+    ]
+
+    # ------------------------------------------------------------------------
+    # 3. VERIFIED ITEMS + DISPATCH RECORDS
+    #
+    # Django performs this as bulk queries instead of N+1.
+    # ------------------------------------------------------------------------
+
+    verified_items_by_verification = defaultdict(list)
+
+    if verification_ids:
+
+        verified_items = list(
+            CRMVerifiedOrderItem.objects
+            .filter(
+                crm_order_id__in=verification_ids
+            )
+            .prefetch_related(
+                "dispatch_record"
+            )
+        )
+
+        for item in verified_items:
+
+            verified_items_by_verification[
+                item.crm_order_id
+            ].append(item)
+
+    # ------------------------------------------------------------------------
+    # 4. BUILD FINAL PAGE DATA
+    # ------------------------------------------------------------------------
+
+    result = {}
+
+    for order in orders:
+
+        original_count = original_item_counts.get(
+            order.id,
+            0,
+        )
+
+        verification = latest_verifications.get(
+            order.id
+        )
+
+        verified_items = []
+
+        if verification:
+            verified_items = (
+                verified_items_by_verification.get(
+                    verification.id,
+                    [],
+                )
+            )
+
+        verified_items_count = len(
+            verified_items
+        )
+
+        dispatchable_items_count = 0
+        dispatched_items_count = 0
+        dispatched_quantity = 0
+
+        if verification:
+
+            for crm_item in verified_items:
+
+                if crm_item.is_rejected:
+                    continue
+
+                dispatchable_items_count += 1
+
+                dispatch = _get_dispatch_record(
+                    crm_item
+                )
+
+                if dispatch:
+
+                    dispatched_items_count += 1
+
+                    dispatched_quantity += int(
+                        dispatch.quantity or 0
+                    )
+
+        # --------------------------------------------------------------------
+        # DISPATCH STATUS
+        # --------------------------------------------------------------------
+
+        if not verification:
+
+            dispatch_status = "NOT_VERIFIED"
+
+        elif dispatchable_items_count == 0:
+
+            dispatch_status = "NO_DISPATCH_REQUIRED"
+
+        elif dispatched_items_count == 0:
+
+            dispatch_status = "PENDING"
+
+        elif (
+            dispatched_items_count
+            >= dispatchable_items_count
+        ):
+
+            dispatch_status = "DISPATCHED"
+
+        else:
+
+            dispatch_status = "PARTIAL"
+
+        result[order.id] = {
+            "items_count": original_count,
+            "verified_items_count": verified_items_count,
+            "dispatched_items_count": dispatched_items_count,
+            "dispatched_quantity": dispatched_quantity,
+            "dispatch_status": dispatch_status,
+            "verification": verification,
+        }
+
+    return result
+
+
+# ============================================================================
+# LIST SERIALIZATION
+# ============================================================================
+
+def _serialize_list_rows(
+    orders,
+    bulk_data,
+):
+
+    rows = []
+
+    for order in orders:
+
+        info = bulk_data.get(
+            order.id,
+            {},
+        )
+
+        verification = info.get(
+            "verification"
+        )
+
+        rows.append({
+            "id": order.id,
+
+            "order_id": order.order_id,
+
+            "ss_party_name": _user_display_name(
+                order.ss_user
+            ),
+
+            "ss_user_name": _user_display_name(
+                order.ss_user
+            ),
+
+            "crm_name": _user_display_name(
+                order.assigned_crm
+            ),
+
+            "total_amount": str(
+                order.total_amount
+            ),
+
+            "status": order.status or "",
+
+            "verification_status": (
+                verification.status
+                if verification
+                else None
+            ),
+
+            "punched": (
+                bool(verification.punched)
+                if verification
+                else None
+            ),
+
+            "items_count": int(
+                info.get(
+                    "items_count",
+                    0,
+                )
+            ),
+
+            "verified_items_count": int(
+                info.get(
+                    "verified_items_count",
+                    0,
+                )
+            ),
+
+            "dispatched_items_count": int(
+                info.get(
+                    "dispatched_items_count",
+                    0,
+                )
+            ),
+
+            "dispatched_quantity": int(
+                info.get(
+                    "dispatched_quantity",
+                    0,
+                )
+            ),
+
+            "dispatch_status": info.get(
+                "dispatch_status",
+                "NOT_VERIFIED",
+            ),
+
+            "created_at": (
+                order.created_at.isoformat()
+                if order.created_at
+                else ""
+            ),
+        })
+
+    return rows
+
+
+# ============================================================================
+# LATEST VERIFICATION FOR DETAIL
+# ============================================================================
 
 def _get_latest_verification(order):
 
@@ -3339,7 +3615,8 @@ def _get_latest_verification(order):
             "crm_user"
         )
         .prefetch_related(
-            "items__product"
+            "items__product",
+            "items__dispatch_record",
         )
         .order_by(
             "-verified_at",
@@ -3349,25 +3626,35 @@ def _get_latest_verification(order):
     )
 
 
-# ============================================================
+# ============================================================================
 # DETAIL RESPONSE
-# ============================================================
+# ============================================================================
 
 def _build_detail_response(order):
 
+    # ------------------------------------------------------------------------
+    # ORIGINAL ITEMS
+    # ------------------------------------------------------------------------
+
     original_items = list(
         order.items
-        .select_related("product")
+        .select_related(
+            "product"
+        )
         .all()
     )
+
+    # ------------------------------------------------------------------------
+    # LATEST VERIFICATION
+    # ------------------------------------------------------------------------
 
     verification = _get_latest_verification(
         order
     )
 
-    # ========================================================
-    # NO VERIFICATION YET
-    # ========================================================
+    # ------------------------------------------------------------------------
+    # NOT VERIFIED
+    # ------------------------------------------------------------------------
 
     if not verification:
 
@@ -3378,19 +3665,17 @@ def _build_detail_response(order):
             detail_items.append({
                 "crm_item_id": None,
 
-                "product_id":
-                    original_item.product_id,
+                "product_id": original_item.product_id,
 
-                "product_name":
-                    _product_name(
-                        original_item.product
-                    ),
+                "product_name": _product_name(
+                    original_item.product
+                ),
 
-                "ordered_quantity":
-                    original_item.quantity,
+                "ordered_quantity": (
+                    original_item.quantity
+                ),
 
-                "verified_quantity":
-                    None,
+                "verified_quantity": None,
 
                 "rejected": False,
 
@@ -3414,39 +3699,36 @@ def _build_detail_response(order):
 
             "dispatched_quantity": 0,
 
-            "dispatch_status":
-                "NOT_VERIFIED",
+            "dispatch_status": "NOT_VERIFIED",
         }
 
         return {
             "order_id": order.order_id,
 
-            "total_amount":
-                str(order.total_amount),
+            "total_amount": str(
+                order.total_amount
+            ),
 
-            "status":
-                order.status or "",
+            "status": order.status or "",
 
-            "created_at":
+            "created_at": (
                 order.created_at.isoformat()
                 if order.created_at
-                else "",
+                else ""
+            ),
 
             "ss_user": {
-                "party_name":
-                    _user_display_name(
-                        order.ss_user
-                    ),
+                "party_name": _user_display_name(
+                    order.ss_user
+                ),
 
-                "name":
-                    _user_display_name(
-                        order.ss_user
-                    ),
+                "name": _user_display_name(
+                    order.ss_user
+                ),
 
-                "mobile":
-                    _user_mobile(
-                        order.ss_user
-                    ),
+                "mobile": _user_mobile(
+                    order.ss_user
+                ),
             },
 
             "crm_user": {
@@ -3460,42 +3742,46 @@ def _build_detail_response(order):
 
             "items": detail_items,
 
-            "note":
-                order.note or "",
+            "note": order.note or "",
 
-            "notes":
-                order.notes or "",
+            "notes": order.notes or "",
         }
 
-    # ========================================================
+    # ------------------------------------------------------------------------
     # VERIFIED ITEMS
-    # ========================================================
+    # ------------------------------------------------------------------------
 
     verified_items = list(
         verification.items
-        .select_related("product")
-        .prefetch_related("dispatch_record")
+        .select_related(
+            "product"
+        )
+        .prefetch_related(
+            "dispatch_record"
+        )
         .all()
     )
 
-    # ========================================================
+    # ------------------------------------------------------------------------
     # MATCH ORIGINAL ITEMS
-    # ========================================================
+    # ------------------------------------------------------------------------
 
     original_by_product = defaultdict(list)
 
-    for item in original_items:
+    for original_item in original_items:
 
         original_by_product[
-            item.product_id
-        ].append(item)
+            original_item.product_id
+        ].append(original_item)
+
+    # ------------------------------------------------------------------------
+    # BUILD DETAIL ITEMS
+    # ------------------------------------------------------------------------
 
     detail_items = []
 
     dispatched_quantity_total = 0
-
     dispatched_items_count = 0
-
     dispatchable_items_count = 0
 
     for crm_item in verified_items:
@@ -3508,7 +3794,9 @@ def _build_detail_response(order):
 
         if candidates:
 
-            original_item = candidates.pop(0)
+            original_item = candidates.pop(
+                0
+            )
 
         dispatch = _get_dispatch_record(
             crm_item
@@ -3533,79 +3821,74 @@ def _build_detail_response(order):
                 )
 
         detail_items.append({
+            "crm_item_id": crm_item.id,
 
-            "crm_item_id":
-                crm_item.id,
+            "product_id": crm_item.product_id,
 
-            "product_id":
-                crm_item.product_id,
+            "product_name": _product_name(
+                crm_item.product
+            ),
 
-            "product_name":
-                _product_name(
-                    crm_item.product
-                ),
+            "ordered_quantity": (
+                original_item.quantity
+                if original_item
+                else 0
+            ),
 
-            "ordered_quantity":
-                (
-                    original_item.quantity
-                    if original_item
-                    else 0
-                ),
+            "verified_quantity": (
+                crm_item.quantity
+            ),
 
-            "verified_quantity":
-                crm_item.quantity,
+            "rejected": bool(
+                crm_item.is_rejected
+            ),
 
-            "rejected":
-                bool(
-                    crm_item.is_rejected
-                ),
+            "dispatch_quantity": (
+                dispatch_quantity
+            ),
 
-            "dispatch_quantity":
-                dispatch_quantity,
+            "dispatch_location": (
+                dispatch.dispatch_location
+                if dispatch
+                else None
+            ),
 
-            "dispatch_location":
-                (
-                    dispatch.dispatch_location
-                    if dispatch
-                    else None
-                ),
-
-            "order_packed_time":
-                (
-                    dispatch.order_packed_time.isoformat()
-                    if dispatch
+            "order_packed_time": (
+                dispatch.order_packed_time.isoformat()
+                if (
+                    dispatch
                     and dispatch.order_packed_time
-                    else None
-                ),
+                )
+                else None
+            ),
         })
 
-    # ========================================================
-    # ORIGINAL ITEMS THAT DID NOT HAVE CRM ITEM
-    # ========================================================
+    # ------------------------------------------------------------------------
+    # REMAINING ORIGINAL ITEMS
+    # ------------------------------------------------------------------------
 
-    for product_id, remaining_items in (
-        original_by_product.items()
+    for remaining_items in (
+        original_by_product.values()
     ):
 
         for original_item in remaining_items:
 
             detail_items.append({
-
                 "crm_item_id": None,
 
-                "product_id":
-                    original_item.product_id,
+                "product_id": (
+                    original_item.product_id
+                ),
 
-                "product_name":
-                    _product_name(
-                        original_item.product
-                    ),
+                "product_name": _product_name(
+                    original_item.product
+                ),
 
-                "ordered_quantity":
-                    original_item.quantity,
+                "ordered_quantity": (
+                    original_item.quantity
+                ),
 
-                "verified_quantity":
-                    None,
+                "verified_quantity": None,
 
                 "rejected": False,
 
@@ -3616,9 +3899,9 @@ def _build_detail_response(order):
                 "order_packed_time": None,
             })
 
-    # ========================================================
+    # ------------------------------------------------------------------------
     # DISPATCH STATUS
-    # ========================================================
+    # ------------------------------------------------------------------------
 
     if dispatchable_items_count == 0:
 
@@ -3641,116 +3924,106 @@ def _build_detail_response(order):
 
         dispatch_status = "PARTIAL"
 
-    # ========================================================
+    # ------------------------------------------------------------------------
     # FINAL RESPONSE
-    # ========================================================
+    # ------------------------------------------------------------------------
 
     return {
+        "order_id": order.order_id,
 
-        "order_id":
-            order.order_id,
+        "total_amount": str(
+            order.total_amount
+        ),
 
-        "total_amount":
-            str(order.total_amount),
+        "status": order.status or "",
 
-        "status":
-            order.status or "",
-
-        "created_at":
+        "created_at": (
             order.created_at.isoformat()
             if order.created_at
-            else "",
+            else ""
+        ),
 
         "ss_user": {
+            "party_name": _user_display_name(
+                order.ss_user
+            ),
 
-            "party_name":
-                _user_display_name(
-                    order.ss_user
-                ),
+            "name": _user_display_name(
+                order.ss_user
+            ),
 
-            "name":
-                _user_display_name(
-                    order.ss_user
-                ),
-
-            "mobile":
-                _user_mobile(
-                    order.ss_user
-                ),
+            "mobile": _user_mobile(
+                order.ss_user
+            ),
         },
 
         "crm_user": {
+            "name": _user_display_name(
+                verification.crm_user
+            ),
 
-            "name":
-                _user_display_name(
-                    verification.crm_user
-                ),
-
-            "mobile":
-                _user_mobile(
-                    verification.crm_user
-                ),
+            "mobile": _user_mobile(
+                verification.crm_user
+            ),
         },
 
         "verification": {
+            "status": verification.status,
 
-            "status":
-                verification.status,
+            "punched": bool(
+                verification.punched
+            ),
 
-            "punched":
-                bool(
-                    verification.punched
-                ),
+            "crm_name": _user_display_name(
+                verification.crm_user
+            ),
 
-            "crm_name":
-                _user_display_name(
-                    verification.crm_user
-                ),
+            "verified_at": (
+                verification.verified_at.isoformat()
+                if verification.verified_at
+                else None
+            ),
 
-            "verified_at":
-                (
-                    verification.verified_at.isoformat()
-                    if verification.verified_at
-                    else None
-                ),
-                "dispatch_location": verification.dispatch_location,
+            "dispatch_location": (
+                verification.dispatch_location
+            ),
         },
 
         "summary": {
+            "items_count": len(
+                original_items
+            ),
 
-            "items_count":
-                len(original_items),
+            "verified_items_count": len(
+                verified_items
+            ),
 
-            "verified_items_count":
-                len(verified_items),
+            "dispatchable_items_count": (
+                dispatchable_items_count
+            ),
 
-            "dispatchable_items_count":
-                dispatchable_items_count,
+            "dispatched_items_count": (
+                dispatched_items_count
+            ),
 
-            "dispatched_items_count":
-                dispatched_items_count,
+            "dispatched_quantity": (
+                dispatched_quantity_total
+            ),
 
-            "dispatched_quantity":
-                dispatched_quantity_total,
-
-            "dispatch_status":
-                dispatch_status,
+            "dispatch_status": dispatch_status,
         },
 
-        "items":
-            detail_items,
+        "items": detail_items,
 
-        "note":
-            order.note or "",
+        "note": order.note or "",
 
-        "notes":
-            order.notes or "",
+        "notes": order.notes or "",
     }
 
 
-# ============================================================
+# ============================================================================
 # LIST API
-# ============================================================
+# ============================================================================
 
 class OrderRecordsListView(APIView):
 
@@ -3764,19 +4037,48 @@ class OrderRecordsListView(APIView):
 
     def get(self, request):
 
-        queryset = _build_order_records_queryset(
+        # ====================================================================
+        # STEP 1
+        # Lightweight role-filtered queryset
+        #
+        # IMPORTANT:
+        # No item joins.
+        # No dispatch joins.
+        # No verification annotations.
+        # ====================================================================
+
+        queryset = _get_role_filtered_queryset(
             request.user
         )
 
+        # ====================================================================
+        # STEP 2
+        # Apply requested filters
+        # ====================================================================
+
         queryset = _apply_filters(
             queryset,
-            request
+            request,
         )
+
+        # ====================================================================
+        # STEP 3
+        # Stable ordering
+        # ====================================================================
 
         queryset = queryset.order_by(
             "-created_at",
             "-pk",
         )
+
+        # ====================================================================
+        # STEP 4
+        # PAGINATE FIRST
+        #
+        # This is the most important optimization.
+        #
+        # Database now selects ONLY current 50 orders.
+        # ====================================================================
 
         paginator = self.pagination_class()
 
@@ -3786,14 +4088,30 @@ class OrderRecordsListView(APIView):
             view=self,
         )
 
-        data = [
-            _serialize_list_row(order)
-            for order in page
-        ]
+        # ====================================================================
+        # STEP 5
+        # BULK ENRICH ONLY CURRENT PAGE
+        # ====================================================================
 
-        serializer = OrderRecordListSerializer(
-            data,
-            many=True,
+        bulk_data = _build_bulk_list_data(
+            page
+        )
+
+        # ====================================================================
+        # STEP 6
+        # SERIALIZE
+        # ====================================================================
+
+        data = _serialize_list_rows(
+            page,
+            bulk_data,
+        )
+
+        serializer = (
+            OrderRecordListSerializer(
+                data,
+                many=True,
+            )
         )
 
         return paginator.get_paginated_response(
@@ -3801,9 +4119,9 @@ class OrderRecordsListView(APIView):
         )
 
 
-# ============================================================
+# ============================================================================
 # DETAIL API
-# ============================================================
+# ============================================================================
 
 class OrderRecordDetailView(APIView):
 
@@ -3812,6 +4130,12 @@ class OrderRecordDetailView(APIView):
     ]
 
     def get(self, request, pk):
+
+        # --------------------------------------------------------------------
+        # ROLE FILTER IS APPLIED AGAIN.
+        #
+        # So CRM/SS cannot access another user's order by changing URL ID.
+        # --------------------------------------------------------------------
 
         queryset = _get_role_filtered_queryset(
             request.user
@@ -3826,12 +4150,1247 @@ class OrderRecordDetailView(APIView):
             order
         )
 
-        serializer = OrderRecordDetailSerializer(
-            data
+        serializer = (
+            OrderRecordDetailSerializer(
+                data
+            )
         )
 
         return Response(
             serializer.data,
             status=status.HTTP_200_OK,
         )
+
+# from collections import defaultdict
+
+# from django.contrib.auth import get_user_model
+# from django.core.exceptions import FieldDoesNotExist
+# from django.db.models import (
+#     Case,
+#     CharField,
+#     Count,
+#     F,
+#     IntegerField,
+#     OuterRef,
+#     Q,
+#     Subquery,
+#     Sum,
+#     Value,
+#     When,
+# )
+# from django.db.models.functions import Coalesce
+# from django.shortcuts import get_object_or_404
+
+# from rest_framework import status
+# from rest_framework.exceptions import PermissionDenied
+# from rest_framework.pagination import PageNumberPagination
+# from rest_framework.permissions import IsAuthenticated
+# from rest_framework.response import Response
+# from rest_framework.views import APIView
+
+# from .models import (
+#     SSOrder,
+#     SSOrderItem,
+#     CRMVerifiedOrder,
+#     CRMVerifiedOrderItem,
+#     DispatchRecord,
+# )
+
+# from .order_records_serializers import (
+#     OrderRecordListSerializer,
+#     OrderRecordDetailSerializer,
+# )
+
+
+# User = get_user_model()
+
+
+# # ============================================================
+# # PAGINATION
+# # ============================================================
+
+# class OrderRecordPagination(PageNumberPagination):
+#     page_size = 50
+#     page_size_query_param = "page_size"
+#     max_page_size = 100
+
+
+# # ============================================================
+# # USER HELPERS
+# # ============================================================
+
+# def _field_exists(model, field_name):
+#     try:
+#         model._meta.get_field(field_name)
+#         return True
+#     except FieldDoesNotExist:
+#         return False
+
+
+# def _user_display_name(user):
+#     if not user:
+#         return ""
+
+#     for field in (
+#         "party_name",
+#         "name",
+#         "username",
+#         "email",
+#     ):
+#         value = getattr(user, field, None)
+
+#         if value:
+#             return str(value).strip()
+
+#     first_name = getattr(user, "first_name", "") or ""
+#     last_name = getattr(user, "last_name", "") or ""
+
+#     full_name = f"{first_name} {last_name}".strip()
+
+#     return full_name
+
+
+# def _user_mobile(user):
+#     if not user:
+#         return ""
+
+#     for field in (
+#         "mobile",
+#         "phone",
+#         "phone_number",
+#     ):
+#         value = getattr(user, field, None)
+
+#         if value:
+#             return str(value)
+
+#     return ""
+
+
+# def _user_search_q(relation, value):
+#     """
+#     Builds a safe search query according to fields
+#     actually existing on the custom User model.
+#     """
+
+#     query = Q()
+
+#     searchable_fields = [
+#         "party_name",
+#         "name",
+#         "username",
+#         "first_name",
+#         "last_name",
+#         "email",
+#         "mobile",
+#         "phone",
+#         "phone_number",
+#     ]
+
+#     for field in searchable_fields:
+#         if _field_exists(User, field):
+#             query |= Q(
+#                 **{
+#                     f"{relation}__{field}__icontains": value
+#                 }
+#             )
+
+#     return query
+
+
+# # ============================================================
+# # ROLE
+# # ============================================================
+
+# def _get_user_role(user):
+#     role = getattr(user, "role", None)
+
+#     if role is None:
+#         role = getattr(user, "user_type", None)
+
+#     return str(role or "").upper().strip()
+
+
+# def _is_admin(user):
+#     return (
+#         bool(getattr(user, "is_superuser", False))
+#         or bool(getattr(user, "is_staff", False))
+#         or _get_user_role(user) == "ADMIN"
+#     )
+
+
+# # ============================================================
+# # BASE ROLE FILTER
+# # ============================================================
+
+# def _get_role_filtered_queryset(user):
+#     """
+#     IMPORTANT:
+#     Role filtering happens directly in DB.
+#     """
+
+#     queryset = SSOrder.objects.select_related(
+#         "ss_user",
+#         "assigned_crm",
+#     )
+
+#     if _is_admin(user):
+#         return queryset
+
+#     role = _get_user_role(user)
+
+#     if role == "CRM":
+#         return queryset.filter(
+#             assigned_crm=user
+#         )
+
+#     if role == "SS":
+#         return queryset.filter(
+#             ss_user=user
+#         )
+
+#     raise PermissionDenied(
+#         "You are not allowed to access order records."
+#     )
+
+
+# # ============================================================
+# # LATEST VERIFICATION SUBQUERY
+# # ============================================================
+
+# def _latest_verification_queryset():
+#     return (
+#         CRMVerifiedOrder.objects
+#         .filter(
+#             original_order=OuterRef("pk")
+#         )
+#         .order_by(
+#             "-verified_at",
+#             "-pk",
+#         )
+#     )
+
+
+# # ============================================================
+# # ANNOTATED LIST QUERYSET
+# # ============================================================
+
+# def _build_order_records_queryset(user):
+#     queryset = _get_role_filtered_queryset(user)
+
+#     latest_verification = _latest_verification_queryset()
+
+#     latest_verification_id = Subquery(
+#         latest_verification.values("id")[:1],
+#         output_field=IntegerField(),
+#     )
+
+#     latest_verification_status = Subquery(
+#         latest_verification.values("status")[:1],
+#         output_field=CharField(),
+#     )
+
+#     latest_verification_punched = Subquery(
+#         latest_verification.values("punched")[:1],
+#     )
+
+#     latest_verification_date = Subquery(
+#         latest_verification.values("verified_at")[:1],
+#     )
+
+#     latest_dispatch_location = Subquery(
+#         latest_verification.values("dispatch_location")[:1],
+#         output_field=CharField(),
+#     )
+
+#     # --------------------------------------------------------
+#     # VERIFIED ITEM COUNT
+#     # --------------------------------------------------------
+
+#     verified_item_count = Subquery(
+#         CRMVerifiedOrderItem.objects
+#         .filter(
+#             crm_order_id=latest_verification_id
+#         )
+#         .order_by()
+#         .values("crm_order_id")
+#         .annotate(
+#             total=Count("id")
+#         )
+#         .values("total")[:1],
+#         output_field=IntegerField(),
+#     )
+
+#     # --------------------------------------------------------
+#     # DISPATCHABLE ITEM COUNT
+#     # --------------------------------------------------------
+
+#     dispatchable_item_count = Subquery(
+#         CRMVerifiedOrderItem.objects
+#         .filter(
+#             crm_order_id=latest_verification_id,
+#             is_rejected=False,
+#         )
+#         .order_by()
+#         .values("crm_order_id")
+#         .annotate(
+#             total=Count("id")
+#         )
+#         .values("total")[:1],
+#         output_field=IntegerField(),
+#     )
+
+#     # --------------------------------------------------------
+#     # DISPATCHED ITEM COUNT
+#     # --------------------------------------------------------
+
+#     dispatched_item_count = Subquery(
+#         CRMVerifiedOrderItem.objects
+#         .filter(
+#             crm_order_id=latest_verification_id,
+#             is_rejected=False,
+#             dispatch_record__isnull=False,
+#         )
+#         .order_by()
+#         .values("crm_order_id")
+#         .annotate(
+#             total=Count("id")
+#         )
+#         .values("total")[:1],
+#         output_field=IntegerField(),
+#     )
+
+#     # --------------------------------------------------------
+#     # DISPATCHED QUANTITY
+#     # --------------------------------------------------------
+
+#     dispatched_quantity = Subquery(
+#         DispatchRecord.objects
+#         .filter(
+#             crm_item__crm_order_id=latest_verification_id
+#         )
+#         .order_by()
+#         .values(
+#             "crm_item__crm_order_id"
+#         )
+#         .annotate(
+#             total=Sum("quantity")
+#         )
+#         .values("total")[:1],
+#         output_field=IntegerField(),
+#     )
+
+#     queryset = queryset.annotate(
+#         latest_verification_id=latest_verification_id,
+
+#         latest_verification_status=latest_verification_status,
+
+#         latest_verification_punched=latest_verification_punched,
+
+#         latest_verification_date=latest_verification_date,
+
+#         latest_dispatch_location=latest_dispatch_location,
+
+#         items_count=Count(
+#             "items",
+#             distinct=True,
+#         ),
+
+#         verified_item_count=Coalesce(
+#             verified_item_count,
+#             Value(0),
+#             output_field=IntegerField(),
+#         ),
+
+#         dispatchable_item_count=Coalesce(
+#             dispatchable_item_count,
+#             Value(0),
+#             output_field=IntegerField(),
+#         ),
+
+#         dispatched_item_count=Coalesce(
+#             dispatched_item_count,
+#             Value(0),
+#             output_field=IntegerField(),
+#         ),
+
+#         dispatched_quantity=Coalesce(
+#             dispatched_quantity,
+#             Value(0),
+#             output_field=IntegerField(),
+#         ),
+#     )
+
+#     # ========================================================
+#     # DISPATCH STATUS
+#     # ========================================================
+
+#     queryset = queryset.annotate(
+#         dispatch_status=Case(
+
+#             When(
+#                 latest_verification_id__isnull=True,
+#                 then=Value("NOT_VERIFIED"),
+#             ),
+
+#             When(
+#                 dispatchable_item_count=0,
+#                 then=Value("NO_DISPATCH_REQUIRED"),
+#             ),
+
+#             When(
+#                 dispatched_item_count=0,
+#                 then=Value("PENDING"),
+#             ),
+
+#             When(
+#                 dispatched_item_count__gte=F(
+#                     "dispatchable_item_count"
+#                 ),
+#                 then=Value("DISPATCHED"),
+#             ),
+
+#             default=Value("PARTIAL"),
+
+#             output_field=CharField(),
+#         )
+#     )
+
+#     return queryset
+
+
+# # ============================================================
+# # DATE PARSER
+# # ============================================================
+
+# def _get_date(value):
+#     if not value:
+#         return None
+
+#     try:
+#         from datetime import date
+
+#         return date.fromisoformat(value)
+
+#     except (TypeError, ValueError):
+#         return None
+
+
+# # ============================================================
+# # LIST FILTERS
+# # ============================================================
+
+# def _apply_filters(queryset, request):
+
+#     # --------------------------------------------------------
+#     # SEARCH
+#     # --------------------------------------------------------
+
+#     search = str(
+#         request.query_params.get(
+#             "search",
+#             ""
+#         )
+#     ).strip()
+
+#     if search:
+
+#         search_query = Q(
+#             order_id__icontains=search
+#         )
+
+#         search_query |= _user_search_q(
+#             "ss_user",
+#             search
+#         )
+
+#         search_query |= _user_search_q(
+#             "assigned_crm",
+#             search
+#         )
+
+#         queryset = queryset.filter(
+#             search_query
+#         )
+
+#     # --------------------------------------------------------
+#     # PARTY
+#     # --------------------------------------------------------
+
+#     party = str(
+#         request.query_params.get(
+#             "party",
+#             ""
+#         )
+#     ).strip()
+
+#     if party:
+
+#         party_query = _user_search_q(
+#             "ss_user",
+#             party
+#         )
+
+#         queryset = queryset.filter(
+#             party_query
+#         )
+
+#     # --------------------------------------------------------
+#     # ORIGINAL ORDER STATUS
+#     # --------------------------------------------------------
+
+#     order_status = str(
+#         request.query_params.get(
+#             "status",
+#             ""
+#         )
+#     ).strip()
+
+#     if order_status:
+#         queryset = queryset.filter(
+#             status__iexact=order_status
+#         )
+
+#     # --------------------------------------------------------
+#     # VERIFICATION STATUS
+#     # --------------------------------------------------------
+
+#     verification_status = str(
+#         request.query_params.get(
+#             "verification_status",
+#             ""
+#         )
+#     ).strip()
+
+#     if verification_status:
+#         queryset = queryset.filter(
+#             latest_verification_status__iexact=
+#             verification_status
+#         )
+
+#     # --------------------------------------------------------
+#     # PUNCHED
+#     # --------------------------------------------------------
+
+#     punched = str(
+#         request.query_params.get(
+#             "punched",
+#             ""
+#         )
+#     ).strip().lower()
+
+#     if punched in {
+#         "true",
+#         "1",
+#         "yes",
+#     }:
+
+#         queryset = queryset.filter(
+#             latest_verification_punched=True
+#         )
+
+#     elif punched in {
+#         "false",
+#         "0",
+#         "no",
+#     }:
+
+#         queryset = queryset.filter(
+#             latest_verification_punched=False
+#         )
+
+#     # --------------------------------------------------------
+#     # DISPATCH
+#     # --------------------------------------------------------
+
+#     dispatch = str(
+#         request.query_params.get(
+#             "dispatch",
+#             ""
+#         )
+#     ).strip().upper()
+
+#     allowed_dispatch_statuses = {
+#         "NOT_VERIFIED",
+#         "NO_DISPATCH_REQUIRED",
+#         "PENDING",
+#         "PARTIAL",
+#         "DISPATCHED",
+#     }
+
+#     if dispatch in allowed_dispatch_statuses:
+
+#         queryset = queryset.filter(
+#             dispatch_status=dispatch
+#         )
+
+#     # --------------------------------------------------------
+#     # FROM DATE
+#     # --------------------------------------------------------
+
+#     from_date = _get_date(
+#         request.query_params.get(
+#             "from_date"
+#         )
+#     )
+
+#     if from_date:
+
+#         queryset = queryset.filter(
+#             created_at__date__gte=from_date
+#         )
+
+#     # --------------------------------------------------------
+#     # TO DATE
+#     # --------------------------------------------------------
+
+#     to_date = _get_date(
+#         request.query_params.get(
+#             "to_date"
+#         )
+#     )
+
+#     if to_date:
+
+#         queryset = queryset.filter(
+#             created_at__date__lte=to_date
+#         )
+
+#     return queryset
+
+
+# # ============================================================
+# # LIST SERIALIZATION
+# # ============================================================
+
+# def _serialize_list_row(order):
+
+#     total_amount = order.total_amount
+
+#     return {
+#         "id": order.id,
+
+#         "order_id": order.order_id,
+
+#         "ss_party_name": _user_display_name(
+#             order.ss_user
+#         ),
+
+#         "ss_user_name": _user_display_name(
+#             order.ss_user
+#         ),
+
+#         "crm_name": _user_display_name(
+#             order.assigned_crm
+#         ),
+
+#         "total_amount": str(
+#             total_amount
+#         ),
+
+#         "status": order.status or "",
+
+#         "verification_status":
+#             getattr(
+#                 order,
+#                 "latest_verification_status",
+#                 None,
+#             ),
+
+#         "punched":
+#             getattr(
+#                 order,
+#                 "latest_verification_punched",
+#                 None,
+#             ),
+
+#         "items_count":
+#             int(
+#                 getattr(
+#                     order,
+#                     "items_count",
+#                     0
+#                 ) or 0
+#             ),
+#             "verified_items_count": int(
+#     getattr(order, "verified_item_count", 0) or 0
+# ),
+#         "dispatched_items_count":
+#             int(
+#                 getattr(
+#                     order,
+#                     "dispatched_item_count",
+#                     0
+#                 ) or 0
+#             ),
+
+#         "dispatched_quantity":
+#             int(
+#                 getattr(
+#                     order,
+#                     "dispatched_quantity",
+#                     0
+#                 ) or 0
+#             ),
+
+#         "dispatch_status":
+#             getattr(
+#                 order,
+#                 "dispatch_status",
+#                 "NOT_VERIFIED",
+#             ),
+
+#         "created_at":
+#             order.created_at.isoformat()
+#             if order.created_at
+#             else "",
+#     }
+
+
+# # ============================================================
+# # DETAIL HELPERS
+# # ============================================================
+
+# def _product_name(product):
+
+#     if not product:
+#         return ""
+
+#     for field in (
+#         "product_name",
+#         "name",
+#         "title",
+#     ):
+
+#         value = getattr(
+#             product,
+#             field,
+#             None
+#         )
+
+#         if value:
+#             return str(value)
+
+#     return str(product)
+
+
+# def _get_dispatch_record(crm_item):
+
+#     try:
+#         return crm_item.dispatch_record
+
+#     except DispatchRecord.DoesNotExist:
+#         return None
+
+
+# # ============================================================
+# # DETAIL QUERY
+# # ============================================================
+
+# def _get_latest_verification(order):
+
+#     return (
+#         CRMVerifiedOrder.objects
+#         .filter(
+#             original_order=order
+#         )
+#         .select_related(
+#             "crm_user"
+#         )
+#         .prefetch_related(
+#             "items__product"
+#         )
+#         .order_by(
+#             "-verified_at",
+#             "-pk",
+#         )
+#         .first()
+#     )
+
+
+# # ============================================================
+# # DETAIL RESPONSE
+# # ============================================================
+
+# def _build_detail_response(order):
+
+#     original_items = list(
+#         order.items
+#         .select_related("product")
+#         .all()
+#     )
+
+#     verification = _get_latest_verification(
+#         order
+#     )
+
+#     # ========================================================
+#     # NO VERIFICATION YET
+#     # ========================================================
+
+#     if not verification:
+
+#         detail_items = []
+
+#         for original_item in original_items:
+
+#             detail_items.append({
+#                 "crm_item_id": None,
+
+#                 "product_id":
+#                     original_item.product_id,
+
+#                 "product_name":
+#                     _product_name(
+#                         original_item.product
+#                     ),
+
+#                 "ordered_quantity":
+#                     original_item.quantity,
+
+#                 "verified_quantity":
+#                     None,
+
+#                 "rejected": False,
+
+#                 "dispatch_quantity": 0,
+
+#                 "dispatch_location": None,
+
+#                 "order_packed_time": None,
+#             })
+
+#         summary = {
+#             "items_count": len(
+#                 original_items
+#             ),
+
+#             "verified_items_count": 0,
+
+#             "dispatchable_items_count": 0,
+
+#             "dispatched_items_count": 0,
+
+#             "dispatched_quantity": 0,
+
+#             "dispatch_status":
+#                 "NOT_VERIFIED",
+#         }
+
+#         return {
+#             "order_id": order.order_id,
+
+#             "total_amount":
+#                 str(order.total_amount),
+
+#             "status":
+#                 order.status or "",
+
+#             "created_at":
+#                 order.created_at.isoformat()
+#                 if order.created_at
+#                 else "",
+
+#             "ss_user": {
+#                 "party_name":
+#                     _user_display_name(
+#                         order.ss_user
+#                     ),
+
+#                 "name":
+#                     _user_display_name(
+#                         order.ss_user
+#                     ),
+
+#                 "mobile":
+#                     _user_mobile(
+#                         order.ss_user
+#                     ),
+#             },
+
+#             "crm_user": {
+#                 "name": "",
+#                 "mobile": "",
+#             },
+
+#             "verification": None,
+
+#             "summary": summary,
+
+#             "items": detail_items,
+
+#             "note":
+#                 order.note or "",
+
+#             "notes":
+#                 order.notes or "",
+#         }
+
+#     # ========================================================
+#     # VERIFIED ITEMS
+#     # ========================================================
+
+#     verified_items = list(
+#         verification.items
+#         .select_related("product")
+#         .prefetch_related("dispatch_record")
+#         .all()
+#     )
+
+#     # ========================================================
+#     # MATCH ORIGINAL ITEMS
+#     # ========================================================
+
+#     original_by_product = defaultdict(list)
+
+#     for item in original_items:
+
+#         original_by_product[
+#             item.product_id
+#         ].append(item)
+
+#     detail_items = []
+
+#     dispatched_quantity_total = 0
+
+#     dispatched_items_count = 0
+
+#     dispatchable_items_count = 0
+
+#     for crm_item in verified_items:
+
+#         original_item = None
+
+#         candidates = original_by_product.get(
+#             crm_item.product_id
+#         )
+
+#         if candidates:
+
+#             original_item = candidates.pop(0)
+
+#         dispatch = _get_dispatch_record(
+#             crm_item
+#         )
+
+#         dispatch_quantity = (
+#             int(dispatch.quantity)
+#             if dispatch
+#             else 0
+#         )
+
+#         if not crm_item.is_rejected:
+
+#             dispatchable_items_count += 1
+
+#             if dispatch:
+
+#                 dispatched_items_count += 1
+
+#                 dispatched_quantity_total += (
+#                     dispatch_quantity
+#                 )
+
+#         detail_items.append({
+
+#             "crm_item_id":
+#                 crm_item.id,
+
+#             "product_id":
+#                 crm_item.product_id,
+
+#             "product_name":
+#                 _product_name(
+#                     crm_item.product
+#                 ),
+
+#             "ordered_quantity":
+#                 (
+#                     original_item.quantity
+#                     if original_item
+#                     else 0
+#                 ),
+
+#             "verified_quantity":
+#                 crm_item.quantity,
+
+#             "rejected":
+#                 bool(
+#                     crm_item.is_rejected
+#                 ),
+
+#             "dispatch_quantity":
+#                 dispatch_quantity,
+
+#             "dispatch_location":
+#                 (
+#                     dispatch.dispatch_location
+#                     if dispatch
+#                     else None
+#                 ),
+
+#             "order_packed_time":
+#                 (
+#                     dispatch.order_packed_time.isoformat()
+#                     if dispatch
+#                     and dispatch.order_packed_time
+#                     else None
+#                 ),
+#         })
+
+#     # ========================================================
+#     # ORIGINAL ITEMS THAT DID NOT HAVE CRM ITEM
+#     # ========================================================
+
+#     for product_id, remaining_items in (
+#         original_by_product.items()
+#     ):
+
+#         for original_item in remaining_items:
+
+#             detail_items.append({
+
+#                 "crm_item_id": None,
+
+#                 "product_id":
+#                     original_item.product_id,
+
+#                 "product_name":
+#                     _product_name(
+#                         original_item.product
+#                     ),
+
+#                 "ordered_quantity":
+#                     original_item.quantity,
+
+#                 "verified_quantity":
+#                     None,
+
+#                 "rejected": False,
+
+#                 "dispatch_quantity": 0,
+
+#                 "dispatch_location": None,
+
+#                 "order_packed_time": None,
+#             })
+
+#     # ========================================================
+#     # DISPATCH STATUS
+#     # ========================================================
+
+#     if dispatchable_items_count == 0:
+
+#         dispatch_status = (
+#             "NO_DISPATCH_REQUIRED"
+#         )
+
+#     elif dispatched_items_count == 0:
+
+#         dispatch_status = "PENDING"
+
+#     elif (
+#         dispatched_items_count
+#         >= dispatchable_items_count
+#     ):
+
+#         dispatch_status = "DISPATCHED"
+
+#     else:
+
+#         dispatch_status = "PARTIAL"
+
+#     # ========================================================
+#     # FINAL RESPONSE
+#     # ========================================================
+
+#     return {
+
+#         "order_id":
+#             order.order_id,
+
+#         "total_amount":
+#             str(order.total_amount),
+
+#         "status":
+#             order.status or "",
+
+#         "created_at":
+#             order.created_at.isoformat()
+#             if order.created_at
+#             else "",
+
+#         "ss_user": {
+
+#             "party_name":
+#                 _user_display_name(
+#                     order.ss_user
+#                 ),
+
+#             "name":
+#                 _user_display_name(
+#                     order.ss_user
+#                 ),
+
+#             "mobile":
+#                 _user_mobile(
+#                     order.ss_user
+#                 ),
+#         },
+
+#         "crm_user": {
+
+#             "name":
+#                 _user_display_name(
+#                     verification.crm_user
+#                 ),
+
+#             "mobile":
+#                 _user_mobile(
+#                     verification.crm_user
+#                 ),
+#         },
+
+#         "verification": {
+
+#             "status":
+#                 verification.status,
+
+#             "punched":
+#                 bool(
+#                     verification.punched
+#                 ),
+
+#             "crm_name":
+#                 _user_display_name(
+#                     verification.crm_user
+#                 ),
+
+#             "verified_at":
+#                 (
+#                     verification.verified_at.isoformat()
+#                     if verification.verified_at
+#                     else None
+#                 ),
+#                 "dispatch_location": verification.dispatch_location,
+#         },
+
+#         "summary": {
+
+#             "items_count":
+#                 len(original_items),
+
+#             "verified_items_count":
+#                 len(verified_items),
+
+#             "dispatchable_items_count":
+#                 dispatchable_items_count,
+
+#             "dispatched_items_count":
+#                 dispatched_items_count,
+
+#             "dispatched_quantity":
+#                 dispatched_quantity_total,
+
+#             "dispatch_status":
+#                 dispatch_status,
+#         },
+
+#         "items":
+#             detail_items,
+
+#         "note":
+#             order.note or "",
+
+#         "notes":
+#             order.notes or "",
+#     }
+
+
+# # ============================================================
+# # LIST API
+# # ============================================================
+
+# class OrderRecordsListView(APIView):
+
+#     permission_classes = [
+#         IsAuthenticated
+#     ]
+
+#     pagination_class = (
+#         OrderRecordPagination
+#     )
+
+#     def get(self, request):
+
+#         queryset = _build_order_records_queryset(
+#             request.user
+#         )
+
+#         queryset = _apply_filters(
+#             queryset,
+#             request
+#         )
+
+#         queryset = queryset.order_by(
+#             "-created_at",
+#             "-pk",
+#         )
+
+#         paginator = self.pagination_class()
+
+#         page = paginator.paginate_queryset(
+#             queryset,
+#             request,
+#             view=self,
+#         )
+
+#         data = [
+#             _serialize_list_row(order)
+#             for order in page
+#         ]
+
+#         serializer = OrderRecordListSerializer(
+#             data,
+#             many=True,
+#         )
+
+#         return paginator.get_paginated_response(
+#             serializer.data
+#         )
+
+
+# # ============================================================
+# # DETAIL API
+# # ============================================================
+
+# class OrderRecordDetailView(APIView):
+
+#     permission_classes = [
+#         IsAuthenticated
+#     ]
+
+#     def get(self, request, pk):
+
+#         queryset = _get_role_filtered_queryset(
+#             request.user
+#         )
+
+#         order = get_object_or_404(
+#             queryset,
+#             pk=pk,
+#         )
+
+#         data = _build_detail_response(
+#             order
+#         )
+
+#         serializer = OrderRecordDetailSerializer(
+#             data
+#         )
+
+#         return Response(
+#             serializer.data,
+#             status=status.HTTP_200_OK,
+#         )
 
