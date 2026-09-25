@@ -9,7 +9,6 @@ from rest_framework.response import Response
 from django.http import HttpResponse
 from rest_framework.decorators import api_view
 from django.db import transaction
-# from rest_framework.permissions import IsAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from accounts.permissions import IsCRMOrAdmin
 from django.db import transaction
@@ -17,8 +16,7 @@ from django.db.models import Q
 
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
-from orders.models import  PendingOrderItemSnapshot, CRMVerifiedOrderItem, DispatchOrder
-# from .models import  Product, SaleName, Scheme
+from orders.models import  PendingOrderItemSnapshot, CRMVerifiedOrderItem
 from .models import (
     Product,
     SaleName,
@@ -26,7 +24,6 @@ from .models import (
     ProductPriceHistory,
 )
 
-# from .serializers import (  ProductSerializer, SaleNameSerializer,SchemeSerializer, ProductWithSaleNameSerializer)
 from .serializers import (
     ProductSerializer,
     SaleNameSerializer,
@@ -651,64 +648,115 @@ def export_products_excel(request):
     return response
 
 
+
 class ProductUsageReportView(APIView):
     def get(self, request, product_id):
         try:
             product = Product.objects.get(product_id=product_id)
 
-            # Live + Virtual
+            # ============================================================
+            # STOCK
+            # ============================================================
+
             live_stock = product.live_stock or 0
             virtual_stock = product.virtual_stock or 0
 
-            # Pending Orders List
-            pending_items = PendingOrderItemSnapshot.objects.filter(product=product).select_related("order")
+            # ============================================================
+            # PENDING ORDERS
+            # ALL PendingOrderItemSnapshot records
+            # ============================================================
+
+            pending_items = (
+                PendingOrderItemSnapshot.objects
+                .filter(product=product)
+                .select_related(
+                    "order",
+                    "order__ss_user",
+                )
+                .order_by("-created_at", "-id")
+            )
 
             pending_list = [
                 {
-                    "order_id": p.order.order_id,
-                    "party": p.order.ss_user.party_name,
-                    "quantity": p.quantity,
-                    "order_date": p.order.created_at
+                    "order_id": item.order.order_id,
+                    "party": getattr(
+                        item.order.ss_user,
+                        "party_name",
+                        "",
+                    ),
+                    "quantity": item.quantity,
+                    "order_date": item.order.created_at,
                 }
-                for p in pending_items
+                for item in pending_items
             ]
 
-            # CRM Verified History
-            crm_items = CRMVerifiedOrderItem.objects.filter(product=product).select_related("crm_order")
+            # ============================================================
+            # CRM VERIFICATION HISTORY
+            # ONLY LATEST 10
+            # ============================================================
+
+            crm_items = (
+                CRMVerifiedOrderItem.objects
+                .filter(product=product)
+                .select_related(
+                    "crm_order",
+                    "crm_order__original_order",
+                    "crm_order__crm_user",
+                )
+                .order_by(
+                    "-crm_order__verified_at",
+                    "-id",
+                )[:10]
+            )
 
             crm_history = [
                 {
-                    "order_id": c.crm_order.original_order.order_id,
-                    "crm_status": c.crm_order.status,
-                    "approved_qty": c.quantity,
-                    "is_rejected": c.is_rejected,
-                    "verified_by": c.crm_order.crm_user.name,
-                    "verified_at": c.crm_order.verified_at
+                    "order_id": item.crm_order.original_order.order_id,
+                    "crm_status": item.crm_order.status,
+                    "approved_qty": item.quantity,
+                    "is_rejected": item.is_rejected,
+                    "verified_by": (
+                        getattr(
+                            item.crm_order.crm_user,
+                            "name",
+                            None,
+                        )
+                        or getattr(
+                            item.crm_order.crm_user,
+                            "username",
+                            "",
+                        )
+                        or ""
+                    ),
+                    "verified_at": item.crm_order.verified_at,
                 }
-                for c in crm_items
+                for item in crm_items
             ]
 
-            # Dispatch History
-            dispatch_items = DispatchOrder.objects.filter(product=str(product_id))
+            # ============================================================
+            # RESPONSE
+            # ============================================================
 
-            dispatch_history = [
+            return Response(
                 {
-                    "row_key": d.row_key,
-                    "order_id": d.order_id,
-                    "quantity": d.quantity
-                }
-                for d in dispatch_items
-            ]
+                    "product_name": product.product_name,
+                    "product_id": product.product_id,
+                    "live_stock": live_stock,
+                    "virtual_stock": virtual_stock,
 
-            return Response({
-                "product_name": product.product_name,
-                "product_id": product.product_id,
-                "live_stock": live_stock,
-                "virtual_stock": virtual_stock,
-                "pending_orders": pending_list,
-                "crm_history": crm_history,
-                "dispatch_history": dispatch_history
-            }, status=status.HTTP_200_OK)
+                    # ALL pending records
+                    "pending_orders": pending_list,
+
+                    # ONLY latest 10 CRM records
+                    "crm_history": crm_history,
+                },
+                status=status.HTTP_200_OK,
+            )
 
         except Product.DoesNotExist:
-            return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {
+                    "error": "Product not found",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )

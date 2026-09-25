@@ -1,37 +1,52 @@
-
-from rest_framework.views import APIView
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.response import Response
-from rest_framework.generics import RetrieveAPIView, ListAPIView
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-
-from django.db import transaction
-from django.db.models import Q
-from django.contrib.auth import get_user_model
-from django.shortcuts import get_object_or_404
-from django.http import HttpResponse
-from django.conf import settings
-from django.utils import timezone
-
-from datetime import datetime, timedelta
-
-from openpyxl import Workbook
-import openpyxl
+from collections import defaultdict
+from datetime import datetime, time, timedelta
 import logging
 
+import openpyxl
+from openpyxl import Workbook, load_workbook
+
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.exceptions import FieldDoesNotExist
+from django.db import transaction
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    Exists,
+    F,
+    IntegerField,
+    OuterRef,
+    Prefetch,
+    Q,
+    Subquery,
+    Sum,
+    Value,
+    When,
+)
+from django.db.models.functions import Coalesce
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.generics import ListAPIView, RetrieveAPIView
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .models import (
     SSOrder,
     SSOrderItem,
-    CRMVerifiedOrderItem,
     CRMVerifiedOrder,
+    CRMVerifiedOrderItem,
     Product,
-    DispatchOrder,
+    DispatchRecord,
 )
-
-from orders.models import PendingOrderItemSnapshot
 
 from .serializers import (
     SSOrderSerializer,
@@ -41,16 +56,74 @@ from .serializers import (
     VerifiedOrderDetailsSerializer,
     CombinedOrderTrackSerializer,
     SSOrderSerializerTrack,
-    DispatchOrderSerializer,
     HROrderListSerializer,
+    DispatchRecordSerializer,
 )
 
 from .utils import send_whatsapp_template
+
+from .order_records_serializers import (
+    OrderRecordListSerializer,
+    OrderRecordDetailSerializer,
+)
+
+from orders.models import PendingOrderItemSnapshot
 
 from products.utils import (
     recalculate_virtual_stock,
     write_to_sheet,
 )
+
+
+# from rest_framework.views import APIView
+# from rest_framework.decorators import api_view, permission_classes
+# from rest_framework.response import Response
+# from rest_framework.generics import RetrieveAPIView, ListAPIView
+# from rest_framework import status
+# from rest_framework.permissions import IsAuthenticated
+
+# from django.db import transaction
+# from django.db.models import Q
+# from django.contrib.auth import get_user_model
+# from django.shortcuts import get_object_or_404
+# from django.http import HttpResponse
+# from django.conf import settings
+# from django.utils import timezone
+
+
+# from openpyxl import Workbook
+# import openpyxl
+# import logging
+
+# from rest_framework.parsers import MultiPartParser
+
+# from .models import (
+#     SSOrder,
+#     SSOrderItem,
+#     CRMVerifiedOrderItem,
+#     CRMVerifiedOrder,
+#     Product,
+# )
+
+# from orders.models import PendingOrderItemSnapshot
+
+# from .serializers import (
+#     SSOrderSerializer,
+#     SS_to_CRM_Orders,
+#     CRMVerifiedOrderSerializer,
+#     VerifiedOrderHistorysSerializer,
+#     VerifiedOrderDetailsSerializer,
+#     CombinedOrderTrackSerializer,
+#     SSOrderSerializerTrack,
+#     HROrderListSerializer,
+# )
+
+# from .utils import send_whatsapp_template
+
+# from products.utils import (
+#     recalculate_virtual_stock,
+#     write_to_sheet,
+# )
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -761,94 +834,20 @@ def list_orders_by_role(request):
     return Response(serializer.data)
 
 
-# class CombinedOrderTrackView(APIView):
-#     permission_classes = [IsAuthenticated]
+# from django.db.models import Prefetch
 
-#     def get(self, request, order_id):
-#         user = request.user
+# from rest_framework.permissions import IsAuthenticated
+# from rest_framework.response import Response
+# from rest_framework.views import APIView
 
-#         try:
-#             order = SSOrder.objects.get(order_id=order_id)
-#         except SSOrder.DoesNotExist:
-#             return Response({"error": "Order not found"}, status=404)
+# from .models import (
+#     SSOrder,
+#     SSOrderItem,
+#     CRMVerifiedOrder,
+#     CRMVerifiedOrderItem,
+# )
 
-#         # ✅ CRM apne assigned orders hi dekhega
-#         if not (user.is_staff or user.is_superuser):
-#             if order.assigned_crm != user and order.ss_user != user:
-#                 return Response({"error": "Not authorized"}, status=403)
-
-
-#         data = CombinedOrderTrackSerializer(order).data
-#         return Response(data, status=200)
-
-# class CombinedOrderTrackView(APIView):
-#     permission_classes = [IsAuthenticated]
-
-#     def get(self, request, order_id):
-#         user = request.user
-
-#         print("🔍 TRACK ORDER ID RECEIVED:", repr(order_id))
-
-#         try:
-#             order = SSOrder.objects.select_related(
-#                 "ss_user",
-#                 "assigned_crm"
-#             ).get(order_id=order_id)
-
-#             print("✅ ORDER FOUND:", order.id, order.order_id)
-
-#         except SSOrder.DoesNotExist:
-#             return Response(
-#                 {"error": "Order not found"},
-#                 status=404
-#             )
-
-#         # ADMIN / STAFF / SUPERUSER
-#         if user.is_staff or user.is_superuser:
-#             pass
-
-#         # ASM
-#         elif user.role == "ASM":
-#             from asm.models import ASMSSAssignment
-
-#             assigned = ASMSSAssignment.objects.filter(
-#                 asm=user,
-#                 ss=order.ss_user,
-#                 is_active=True,
-#                 ss__is_active=True,
-#             ).exists()
-
-#             if not assigned:
-#                 return Response(
-#                     {"error": "Not authorized"},
-#                     status=403
-#                 )
-
-#         # CRM / SS
-#         elif order.assigned_crm != user and order.ss_user != user:
-#             return Response(
-#                 {"error": "Not authorized"},
-#                 status=403
-#             )
-
-#         data = CombinedOrderTrackSerializer(order).data
-
-#         return Response(data, status=200)
-
-from django.db.models import Prefetch
-
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-from .models import (
-    SSOrder,
-    SSOrderItem,
-    CRMVerifiedOrder,
-    CRMVerifiedOrderItem,
-)
-
-from .serializers import CombinedOrderTrackSerializer
+# from .serializers import CombinedOrderTrackSerializer
 
 
 class CombinedOrderTrackView(APIView):
@@ -1067,516 +1066,6 @@ class CRMVerifiedItemDeleteView(APIView):
             return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
-class DispatchOrderListView(ListAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = DispatchOrderSerializer
-
-    def get_queryset(self):
-        qs = DispatchOrder.objects.all()
-
-        from_date = self.request.query_params.get("from")
-        to_date = self.request.query_params.get("to")
-
-        if from_date:
-            qs = qs.filter(order_packed_time__date__gte=from_date)
-
-        if to_date:
-            qs = qs.filter(order_packed_time__date__lte=to_date)
-
-        qs = qs.order_by("-order_packed_time")
-
-        # ✅ ONLY limit when NO filters
-        if not from_date and not to_date:
-            return qs[:10]
-
-        return qs
-
-
-class DeleteAllDispatchOrders(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def delete(self, request):
-        count, _ = DispatchOrder.objects.all().delete()
-        return Response(
-            {
-                "message": "सभी dispatch orders delete हो गए",
-                "deleted_count": count
-            },
-            status=status.HTTP_200_OK
-        )
-    
-class DeleteSelectedDispatchOrders(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        ids = request.data.get("ids", [])
-        count, _ = DispatchOrder.objects.filter(id__in=ids).delete()
-        return Response(
-            {"deleted_count": count},
-            status=200
-        )
-
-
-# class DownloadDispatchExcel(APIView):
-#     permission_classes = [IsAuthenticated]
-
-#     def get(self, request):
-#         wb = openpyxl.Workbook()
-#         ws = wb.active
-#         ws.title = "Dispatch Orders"
-
-#         # Header
-#         ws.append([
-#             "order_id",
-#             "product",
-#             "quantity",
-#             "order_packed_time",  # optional
-#         ])
-
-#         # Example row (optional)
-#         ws.append([
-#             "ORD-12345",
-#             "Product A",
-#             10,
-#             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-#         ])
-
-#         response = HttpResponse(
-#             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-#         )
-#         response["Content-Disposition"] = "attachment; filename=dispatch_orders.xlsx"
-#         wb.save(response)
-#         return response
-
-
-class DownloadDispatchExcel(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Dispatch Records"
-
-        # =====================================================
-        # HEADER
-        # =====================================================
-
-        ws.append([
-            "CRM Item ID",
-            "Order ID",
-            "Product",
-            "Quantity",
-            "Dispatch Location",
-            "Order Packed Time",
-        ])
-
-        # =====================================================
-        # FETCH NEW DISPATCH RECORDS
-        # =====================================================
-
-        records = (
-            DispatchRecord.objects
-            .select_related(
-                "crm_item",
-                "crm_item__product",
-                "crm_item__crm_order",
-                "crm_item__crm_order__original_order",
-            )
-            .order_by(
-                "-order_packed_time",
-                "-updated_at",
-            )
-        )
-
-        # =====================================================
-        # DATA
-        # =====================================================
-
-        for record in records:
-
-            crm_item = record.crm_item
-            crm_order = crm_item.crm_order
-            original_order = (
-                crm_order.original_order
-                if crm_order
-                else None
-            )
-
-            product = crm_item.product
-
-            # -------------------------------------------------
-            # ORDER ID
-            # -------------------------------------------------
-
-            order_id = (
-                original_order.order_id
-                if original_order
-                else "-"
-            )
-
-            # -------------------------------------------------
-            # PRODUCT NAME
-            # -------------------------------------------------
-
-            product_name = "-"
-
-            if product:
-                product_name = (
-                    getattr(
-                        product,
-                        "product_name",
-                        None,
-                    )
-                    or getattr(
-                        product,
-                        "name",
-                        None,
-                    )
-                    or str(product)
-                )
-
-            # -------------------------------------------------
-            # APPEND ROW
-            # -------------------------------------------------
-
-            ws.append([
-                crm_item.id,
-                order_id,
-                product_name,
-                record.quantity,
-                record.dispatch_location,
-                (
-                    record.order_packed_time.strftime(
-                        "%Y-%m-%d %H:%M:%S"
-                    )
-                    if record.order_packed_time
-                    else ""
-                ),
-            ])
-
-        # =====================================================
-        # EXCEL FORMATTING
-        # =====================================================
-
-        ws.freeze_panes = "A2"
-
-        ws.column_dimensions["A"].width = 16
-        ws.column_dimensions["B"].width = 18
-        ws.column_dimensions["C"].width = 35
-        ws.column_dimensions["D"].width = 14
-        ws.column_dimensions["E"].width = 20
-        ws.column_dimensions["F"].width = 24
-
-        # =====================================================
-        # RESPONSE
-        # =====================================================
-
-        response = HttpResponse(
-            content_type=(
-                "application/vnd.openxmlformats-officedocument."
-                "spreadsheetml.sheet"
-            )
-        )
-
-        response[
-            "Content-Disposition"
-        ] = (
-            'attachment; filename="dispatch_records.xlsx"'
-        )
-
-        wb.save(response)
-
-        return response
-
-
-
-class UploadDispatchExcel(APIView):
-    permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser]
-
-    def post(self, request):
-        file = request.FILES.get("file")
-
-        if not file:
-            return Response(
-                {
-                    "message": "Excel file required",
-                    "created": 0,
-                    "failed": 0,
-                    "errors": [],
-                },
-                status=400,
-            )
-
-        # ---------------------------------------------------------
-        # LOAD EXCEL
-        # ---------------------------------------------------------
-        try:
-            wb = openpyxl.load_workbook(
-                file,
-                read_only=True,
-                data_only=True,
-            )
-
-            ws = wb.active
-
-        except Exception as exc:
-            return Response(
-                {
-                    "message": "Invalid Excel file",
-                    "created": 0,
-                    "failed": 0,
-                    "errors": [
-                        f"Excel file could not be opened: {str(exc)}"
-                    ],
-                },
-                status=400,
-            )
-
-        objects = []
-        errors = []
-
-        total_rows = 0
-        skipped_blank_rows = 0
-
-        # ---------------------------------------------------------
-        # HELPERS
-        # ---------------------------------------------------------
-        def clean_text(value):
-            if value is None:
-                return ""
-
-            return str(value).strip()
-
-        def parse_quantity(value):
-            """
-            Safely convert Excel quantity into positive integer.
-            """
-
-            if value is None:
-                return None
-
-            if isinstance(value, bool):
-                return None
-
-            if isinstance(value, int):
-                return value if value > 0 else None
-
-            if isinstance(value, float):
-                if value <= 0:
-                    return None
-
-                if not value.is_integer():
-                    return None
-
-                return int(value)
-
-            text = str(value).strip()
-
-            if not text:
-                return None
-
-            try:
-                number = float(text)
-
-                if number <= 0:
-                    return None
-
-                if not number.is_integer():
-                    return None
-
-                return int(number)
-
-            except (ValueError, TypeError):
-                return None
-
-        def parse_packed_time(value):
-            """
-            Supports:
-            - Excel datetime
-            - DD-MM-YYYY HH:MM
-            - DD-MM-YYYY HH:MM:SS
-            - DD/MM/YYYY HH:MM
-            - DD/MM/YYYY HH:MM:SS
-            - YYYY-MM-DD HH:MM
-            - YYYY-MM-DD HH:MM:SS
-
-            Invalid/blank date is treated as an error.
-            """
-
-            if value is None:
-                return None
-
-            # Excel native datetime
-            if isinstance(value, datetime):
-                return value
-
-            text = str(value).strip()
-
-            if not text:
-                return None
-
-            formats = [
-                "%d-%m-%Y %H:%M",
-                "%d-%m-%Y %H:%M:%S",
-                "%d/%m/%Y %H:%M",
-                "%d/%m/%Y %H:%M:%S",
-                "%Y-%m-%d %H:%M",
-                "%Y-%m-%d %H:%M:%S",
-            ]
-
-            for fmt in formats:
-                try:
-                    return datetime.strptime(text, fmt)
-                except ValueError:
-                    continue
-
-            return None
-
-        # ---------------------------------------------------------
-        # READ ROWS
-        # ---------------------------------------------------------
-        for index, row in enumerate(
-            ws.iter_rows(
-                min_row=2,
-                values_only=True
-            ),
-            start=2,
-        ):
-            total_rows += 1
-
-            # Make sure row has at least 4 columns
-            row = list(row)
-
-            while len(row) < 4:
-                row.append(None)
-
-            order_id = row[0]
-            product = row[1]
-            quantity = row[2]
-            packed_time = row[3]
-
-            clean_order_id = clean_text(order_id)
-            clean_product = clean_text(product)
-
-            # -----------------------------------------------------
-            # BLANK ROW
-            # -----------------------------------------------------
-            if (
-                not clean_order_id
-                and not clean_product
-                and quantity in (None, "")
-                and packed_time in (None, "")
-            ):
-                skipped_blank_rows += 1
-                continue
-
-            # -----------------------------------------------------
-            # ORDER ID VALIDATION
-            # -----------------------------------------------------
-            if not clean_order_id:
-                errors.append(
-                    f"Row {index}: Missing Order ID"
-                )
-                continue
-
-            # -----------------------------------------------------
-            # PRODUCT VALIDATION
-            # -----------------------------------------------------
-            if not clean_product:
-                errors.append(
-                    f"Row {index}: Missing Product"
-                )
-                continue
-
-            # -----------------------------------------------------
-            # QUANTITY VALIDATION
-            # -----------------------------------------------------
-            final_quantity = parse_quantity(quantity)
-
-            if final_quantity is None:
-                errors.append(
-                    f"Row {index}: Invalid Quantity "
-                    f"({quantity!r})"
-                )
-                continue
-
-            # -----------------------------------------------------
-            # PACKED TIME VALIDATION
-            # -----------------------------------------------------
-            final_time = parse_packed_time(packed_time)
-
-            if final_time is None:
-                errors.append(
-                    f"Row {index}: Invalid Packed Time "
-                    f"({packed_time!r})"
-                )
-                continue
-
-            # -----------------------------------------------------
-            # CREATE OBJECT FOR BULK INSERT
-            # -----------------------------------------------------
-            objects.append(
-                DispatchOrder(
-                    order_id=clean_order_id[:20],
-                    product=clean_product[:100],
-                    quantity=final_quantity,
-                    order_packed_time=final_time,
-                )
-            )
-
-        # ---------------------------------------------------------
-        # BULK INSERT
-        # ---------------------------------------------------------
-        created = 0
-
-        try:
-            if objects:
-                with transaction.atomic():
-                    DispatchOrder.objects.bulk_create(
-                        objects,
-                        batch_size=1000,
-                    )
-
-                created = len(objects)
-
-        except Exception as exc:
-            return Response(
-                {
-                    "message": "Database error while uploading",
-                    "created": 0,
-                    "failed": total_rows - skipped_blank_rows,
-                    "total_rows": total_rows,
-                    "errors": [
-                        f"Database error: {str(exc)}"
-                    ],
-                },
-                status=500,
-            )
-
-        # ---------------------------------------------------------
-        # FINAL RESPONSE
-        # ---------------------------------------------------------
-        failed = len(errors)
-
-        return Response(
-            {
-                "message": "Upload completed",
-
-                "total_rows": total_rows,
-
-                "created": created,
-
-                "failed": failed,
-
-                "blank_rows": skipped_blank_rows,
-
-                # Full error list
-                # Frontend can show all failed rows.
-                "errors": errors,
-            },
-            status=200,
-        )
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -1835,35 +1324,25 @@ def hr_update_order_notes(request, pk):
 # - Existing DispatchOrder system untouched
 # ============================================================
 
-from datetime import datetime
-
-from django.db import transaction
-from django.utils import timezone
-
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-
-from openpyxl import load_workbook
-
-from .models import (
-    CRMVerifiedOrderItem,
-    DispatchRecord,
-)
 
 
-# ============================================================
-# CONFIGURATION
-# ============================================================
+# from django.db import transaction
+# from django.utils import timezone
 
-# Number of records processed in one DB batch.
-# 2000 is a good balance for 20K-30K+ uploads.
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from rest_framework import status
+
+# from openpyxl import load_workbook
+
+# from .models import (
+#     CRMVerifiedOrderItem,
+#     DispatchRecord,
+# )
+
+
 DISPATCH_BATCH_SIZE = 2000
 
-
-# ============================================================
-# EXCEL HELPERS
-# ============================================================
 
 def normalize_header(value):
     """
@@ -2769,48 +2248,347 @@ class DispatchExcelUploadView(APIView):
         )
 
 
-from collections import defaultdict
-from datetime import datetime, time, timedelta
 
-from django.contrib.auth import get_user_model
-from django.core.exceptions import FieldDoesNotExist
-from django.db.models import (
-    Case,
-    CharField,
-    Count,
-    Exists,
-    F,
-    IntegerField,
-    OuterRef,
-    Q,
-    Subquery,
-    Sum,
-    Value,
-    When,
-)
-from django.db.models.functions import Coalesce
-from django.shortcuts import get_object_or_404
-from django.utils import timezone
+# from django.db import transaction
+# from django.utils import timezone
 
-from rest_framework import status
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.views import APIView
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from rest_framework import status
+# from rest_framework.permissions import IsAuthenticated
+# from rest_framework.pagination import PageNumberPagination
 
-from .models import (
-    SSOrder,
-    SSOrderItem,
-    CRMVerifiedOrder,
-    CRMVerifiedOrderItem,
-    DispatchRecord,
-)
+# from openpyxl import load_workbook
 
-from .order_records_serializers import (
-    OrderRecordListSerializer,
-    OrderRecordDetailSerializer,
-)
+# from .models import (
+#     CRMVerifiedOrderItem,
+#     DispatchRecord,
+# )
+
+# from .serializers import (
+#     DispatchRecordSerializer,
+# )
+
+# =========================================================
+# DISPATCH DASHBOARD PAGINATION
+# =========================================================
+
+class DispatchRecordPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+# =========================================================
+# DISPATCH RECORD LIST
+#
+# Default:
+# latest 20 records
+#
+# Optional:
+# ?from=2026-09-01
+# ?to=2026-09-25
+# ?page=2
+# =========================================================
+
+class DispatchRecordListView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    pagination_class = DispatchRecordPagination
+
+    def get(self, request):
+
+        queryset = (
+            DispatchRecord.objects
+            .select_related(
+                "crm_item",
+                "crm_item__product",
+                "crm_item__crm_order",
+                "crm_item__crm_order__original_order",
+            )
+            .all()
+        )
+
+        # =================================================
+        # FROM DATE
+        # =================================================
+
+        from_date = request.query_params.get("from")
+
+        if from_date:
+
+            try:
+                parsed_from = datetime.strptime(
+                    from_date,
+                    "%Y-%m-%d",
+                ).date()
+
+                queryset = queryset.filter(
+                    order_packed_time__date__gte=parsed_from
+                )
+
+            except ValueError:
+
+                return Response(
+                    {
+                        "message": (
+                            "Invalid 'from' date. "
+                            "Use YYYY-MM-DD."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # =================================================
+        # TO DATE
+        # =================================================
+
+        to_date = request.query_params.get("to")
+
+        if to_date:
+
+            try:
+                parsed_to = datetime.strptime(
+                    to_date,
+                    "%Y-%m-%d",
+                ).date()
+
+                queryset = queryset.filter(
+                    order_packed_time__date__lte=parsed_to
+                )
+
+            except ValueError:
+
+                return Response(
+                    {
+                        "message": (
+                            "Invalid 'to' date. "
+                            "Use YYYY-MM-DD."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # =================================================
+        # DATE RANGE VALIDATION
+        # =================================================
+
+        if from_date and to_date:
+
+            if parsed_from > parsed_to:
+
+                return Response(
+                    {
+                        "message": (
+                            "'from' date cannot be "
+                            "greater than 'to' date."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # =================================================
+        # LATEST FIRST
+        #
+        # NULL packed times go last
+        # =================================================
+
+        queryset = queryset.order_by(
+            "-order_packed_time",
+            "-updated_at",
+            "-id",
+        )
+
+        # =================================================
+        # PAGINATION
+        # =================================================
+
+        paginator = self.pagination_class()
+
+        page = paginator.paginate_queryset(
+            queryset,
+            request,
+            view=self,
+        )
+
+        serializer = DispatchRecordSerializer(
+            page,
+            many=True,
+        )
+
+        return paginator.get_paginated_response(
+            serializer.data
+        )
+
+# =========================================================
+# DELETE SELECTED DISPATCH RECORDS
+# =========================================================
+
+class DispatchRecordBulkDeleteView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+
+        ids = request.data.get("ids", [])
+
+        # =================================================
+        # VALIDATION
+        # =================================================
+
+        if not isinstance(ids, list):
+
+            return Response(
+                {
+                    "message": "'ids' must be a list."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not ids:
+
+            return Response(
+                {
+                    "message": "No dispatch records selected.",
+                    "deleted_count": 0,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # =================================================
+        # CLEAN IDS
+        # =================================================
+
+        clean_ids = []
+
+        for value in ids:
+
+            try:
+                value = int(value)
+
+            except (TypeError, ValueError):
+                continue
+
+            if value > 0:
+                clean_ids.append(value)
+
+        clean_ids = list(
+            dict.fromkeys(clean_ids)
+        )
+
+        if not clean_ids:
+
+            return Response(
+                {
+                    "message": "No valid record IDs supplied.",
+                    "deleted_count": 0,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # =================================================
+        # DELETE
+        # =================================================
+
+        with transaction.atomic():
+
+            deleted_count, _ = (
+                DispatchRecord.objects
+                .filter(
+                    id__in=clean_ids
+                )
+                .delete()
+            )
+
+        return Response(
+            {
+                "message": (
+                    "Selected dispatch records "
+                    "deleted successfully."
+                ),
+                "deleted_count": deleted_count,
+            },
+            status=status.HTTP_200_OK,
+        )
+# =========================================================
+# DELETE ALL DISPATCH RECORDS
+# =========================================================
+
+class DispatchRecordDeleteAllView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request):
+
+        with transaction.atomic():
+
+            deleted_count, _ = (
+                DispatchRecord.objects.all().delete()
+            )
+
+        return Response(
+            {
+                "message": (
+                    "All dispatch records "
+                    "deleted successfully."
+                ),
+                "deleted_count": deleted_count,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
+
+
+
+
+
+
+
+
+# from collections import defaultdict
+# from datetime import datetime, time, timedelta
+
+# from django.contrib.auth import get_user_model
+# from django.core.exceptions import FieldDoesNotExist
+# from django.db.models import (
+#     Case,
+#     CharField,
+#     Count,
+#     Exists,
+#     F,
+#     IntegerField,
+#     OuterRef,
+#     Q,
+#     Subquery,
+#     Sum,
+#     Value,
+#     When,
+# )
+# from django.db.models.functions import Coalesce
+# from django.shortcuts import get_object_or_404
+# from django.utils import timezone
+
+# from rest_framework import status
+# from rest_framework.exceptions import PermissionDenied
+# from rest_framework.pagination import PageNumberPagination
+# from rest_framework.permissions import IsAuthenticated
+# from rest_framework.response import Response
+# from rest_framework.views import APIView
+
+# from .models import (
+#     SSOrder,
+#     SSOrderItem,
+#     CRMVerifiedOrder,
+#     CRMVerifiedOrderItem,
+#     DispatchRecord,
+# )
+
+# from .order_records_serializers import (
+#     OrderRecordListSerializer,
+#     OrderRecordDetailSerializer,
+# )
 
 
 User = get_user_model()

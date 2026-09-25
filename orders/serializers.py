@@ -1,9 +1,12 @@
-# 📁 orders/serializers.py
-from rest_framework import serializers
-from .models import SSOrder, SSOrderItem, CRMVerifiedOrder, CRMVerifiedOrderItem, DispatchOrder, DispatchRecord
 from rest_framework import serializers
 
-
+from .models import (
+    SSOrder,
+    SSOrderItem,
+    CRMVerifiedOrder,
+    CRMVerifiedOrderItem,
+    DispatchRecord,
+)
 
 # ==========================
 # SS Order Serializers
@@ -172,80 +175,6 @@ class VerifiedOrderDetailsSerializer(serializers.ModelSerializer):
             obj.items.filter(is_rejected=False).select_related("product"),
             many=True
         ).data
-
-
-
-# class CombinedOrderTrackSerializer(serializers.ModelSerializer):
-#     ss_items = serializers.SerializerMethodField()
-#     crm_data = serializers.SerializerMethodField()
-#     dispatch_data = serializers.SerializerMethodField()
-
-#     class Meta:
-#         model = SSOrder
-#         fields = [
-#             "order_id",
-#             "ss_user",
-#             "assigned_crm",
-#             "total_amount",
-#             "status",
-#             "created_at",
-#             "note",
-#             "ss_items",
-#             "crm_data",
-#             "dispatch_data",
-#         ]
-
-#     def get_ss_items(self, obj):
-#         return [
-#             {
-#                 "product_id": item.product.product_id,
-#                 "product_name": item.product.product_name,
-#                 "quantity": item.quantity,
-#                 "price": item.price,
-#                 "is_scheme_item": item.is_scheme_item,
-#             }
-#             for item in obj.items.all()
-#         ]
-
-#     def get_crm_data(self, obj):
-#         crm_record = obj.crm_verified_versions.first()
-#         if not crm_record:
-#             return None
-        
-#         return {
-#             "crm_user": crm_record.crm_user.name,
-#             "status": crm_record.status,
-#             "verified_at": crm_record.verified_at,
-#             "items": [
-#                 {
-#                     "product_id": i.product.product_id,
-#                     "product_name": i.product.product_name,
-#                     "quantity": i.quantity,
-#                     "is_rejected": i.is_rejected,
-#                 }
-#                 for i in crm_record.items.all()
-#             ]
-#         }
-#     def get_dispatch_data(self, obj):
-#         crm_record = obj.crm_verified_versions.first()
-#         if not crm_record:
-#             return []
-
-#         dispatch_items = DispatchOrder.objects.filter(order_id=str(crm_record.id))
-
-#         if not dispatch_items.exists():
-#             return []
-
-#         return [
-#             {
-#                 "product": d.product,
-#                 "quantity": d.quantity,
-#                 "order_packed_time": d.order_packed_time,
-#             }
-#             for d in dispatch_items
-#         ]
-    
-
 
 
 class CombinedOrderTrackSerializer(serializers.ModelSerializer):
@@ -445,11 +374,6 @@ class SSOrderSerializerTrack(serializers.ModelSerializer):
         ]
 
 
-class DispatchOrderSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = DispatchOrder
-        fields = "__all__"
-
 class HROrderListSerializer(serializers.ModelSerializer):
     order_id = serializers.CharField(read_only=True)
     ss_user_name = serializers.CharField(source="ss_user.name", read_only=True)
@@ -469,3 +393,43 @@ class HROrderListSerializer(serializers.ModelSerializer):
             "notes",
             "created_at",
         ]
+
+
+# =========================================================
+# DISPATCH RECORD DASHBOARD SERIALIZER
+# =========================================================
+
+class DispatchRecordSerializer(serializers.ModelSerializer):
+    order_id = serializers.CharField(
+        source="crm_item.crm_order.original_order.order_id",
+        read_only=True,
+    )
+
+    product = serializers.CharField(
+        source="crm_item.product.product_name",
+        read_only=True,
+    )
+
+    crm_item_id = serializers.IntegerField(
+        source="crm_item.id",
+        read_only=True,
+    )
+
+    class Meta:
+        model = DispatchRecord
+
+        fields = [
+            "id",
+            "crm_item_id",
+            "order_id",
+            "product",
+            "quantity",
+            "dispatch_location",
+            "order_packed_time",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = fields
+
+

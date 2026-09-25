@@ -1,6 +1,6 @@
 
 from django.urls import path
-from .views import SSOrderCreateView, CRMOrderListView, CRMOrderVerifyView,FinalOrderHistoryView, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderBulkDeleteView, AddItemToCRMVerifiedOrderView, CRMVerifiedItemUpdateView, CRMVerifiedItemDeleteView, hold_order, reject_order, CombinedOrderTrackView, list_orders_by_role, DeleteAllDispatchOrders, SimpleSSOrderCreateView,DispatchOrderListView, UploadDispatchExcel, DownloadDispatchExcel, DeleteSelectedDispatchOrders, FinalOrderDetailsView, download_orders_report, hr_orders, hr_update_order_notes, DispatchExcelUploadView, OrderRecordsListView,  OrderRecordDetailView
+from .views import SSOrderCreateView, CRMOrderListView, CRMOrderVerifyView,FinalOrderHistoryView, UpdateOrderStatusView, punch_order_to_sheet, CRMOrderBulkDeleteView, AddItemToCRMVerifiedOrderView, CRMVerifiedItemUpdateView, CRMVerifiedItemDeleteView, hold_order, reject_order, CombinedOrderTrackView, list_orders_by_role, SimpleSSOrderCreateView, FinalOrderDetailsView, download_orders_report, hr_orders, hr_update_order_notes, DispatchExcelUploadView, OrderRecordsListView,  OrderRecordDetailView, DispatchRecordDeleteAllView, DispatchRecordListView, DispatchRecordBulkDeleteView
 
 
 urlpatterns = [
@@ -22,36 +22,29 @@ urlpatterns = [
     path("track-order/<str:order_id>/", CombinedOrderTrackView.as_view()),
     path('orders-by-role/',list_orders_by_role, name='orders-by-role'),
 
-    # Dispatch URLS========================================================
-    
-    path("dispatch-orders/", DispatchOrderListView.as_view()),
-    path("dispatch-orders/delete-all/", DeleteAllDispatchOrders.as_view()),
-    path("dispatch-orders/delete-selected/", DeleteSelectedDispatchOrders.as_view()),
-    path("dispatch-orders/excel/download/", DownloadDispatchExcel.as_view()),
-    path("dispatch-orders/excel/upload/", UploadDispatchExcel.as_view()),
-
     path("download-orders-report/",download_orders_report,  name="download-orders-report"),
-
-
     path("ss-orders/simple-create/", SimpleSSOrderCreateView.as_view()),
-   
 
     path("hr/orders/",hr_orders, name="hr_orders",),
     path("hr/orders/<int:pk>/notes/",hr_update_order_notes, name="hr_update_order_notes",),
 
-
-
-
+    # Dispatch URLS========================================================
+    # Existing working upload - DO NOT CHANGE
+    path("dispatch/upload-excel/", DispatchExcelUploadView.as_view(), name="dispatch-upload-excel",),
     path("dispatch/upload-excel/", DispatchExcelUploadView.as_view(),name="dispatch-upload-excel",),
+    # Dashboard
+    path( "dispatch/records/", DispatchRecordListView.as_view(),name="dispatch-records-list",),
+    # Delete selected
+    path( "dispatch/records/delete-selected/", DispatchRecordBulkDeleteView.as_view(),name="dispatch-records-delete-selected",),
+    # Delete all
+    path("dispatch/records/delete-all/", DispatchRecordDeleteAllView.as_view(),name="dispatch-records-delete-all",),
 
 
+    # ============================================================================
+    # NEW ORDER RECORDS SYSTEM
+    # ============================================================================
 
-# ============================================================================
-# NEW ORDER RECORDS SYSTEM
-# ============================================================================
-
-
-path("order-records/", OrderRecordsListView.as_view(),name="order-records-list",),
-path("order-records/<int:pk>/", OrderRecordDetailView.as_view(), name="order-records-detail",),
+    path("order-records/", OrderRecordsListView.as_view(),name="order-records-list",),
+    path("order-records/<int:pk>/", OrderRecordDetailView.as_view(), name="order-records-detail",),
 
 ]
