@@ -135,7 +135,6 @@ class BulkPriceUpdateSerializer(serializers.Serializer):
 
         return value
 
-
 class ProductPriceHistorySerializer(serializers.ModelSerializer):
     product_id = serializers.IntegerField(
         source='product.product_id',
@@ -144,6 +143,11 @@ class ProductPriceHistorySerializer(serializers.ModelSerializer):
 
     product_name = serializers.CharField(
         source='product.product_name',
+        read_only=True
+    )
+
+    sub_category = serializers.CharField(
+        source='product.sub_category',
         read_only=True
     )
 
@@ -167,8 +171,10 @@ class ProductPriceHistorySerializer(serializers.ModelSerializer):
 
         fields = [
             'id',
+
             'product_id',
             'product_name',
+            'sub_category',
 
             'old_price',
             'new_price',
@@ -187,7 +193,6 @@ class ProductPriceHistorySerializer(serializers.ModelSerializer):
             'applicable_from',
             'reason',
         ]
-
         
 class SchemeConditionSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source='product.product_name', read_only=True)
